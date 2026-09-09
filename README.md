@@ -26,8 +26,18 @@ Ash 基于七堂伽藍_ 的
 
 ## Before you start
 
-复制公开模板并在本地填写配置；不要提交生成后的私人文件。未创建
-`system_prompt.txt` 时，程序会使用空白的公开示例初始化提示词分区：
+Ash 不是无状态的轻量转发器。当前版本启动时必须连接 PostgreSQL，用它保存会话、
+提示词和运行状态；即使关闭自动记忆，数据库仍然是必需依赖。
+
+运行要求：
+
+- Python 3.12，或支持构建本仓库 Dockerfile 的容器环境
+- PostgreSQL
+- 至少一个兼容的模型供应商及其凭据
+
+复制公开模板并在本地填写配置；不要提交生成后的私人文件。程序不会自动加载
+`.env`，部署平台需要将其中的值设置为环境变量。未创建 `system_prompt.txt` 时，
+程序会使用空白的公开示例初始化提示词分区：
 
 ```bash
 cp .env.example .env
@@ -36,6 +46,16 @@ cp system_prompt.example.txt system_prompt.txt
 
 Dashboard 默认指向本仓库，也可通过 `PUBLIC_REPOSITORY_URL` 改为自己的 fork。
 部署到公网前请阅读 [SECURITY.md](SECURITY.md)。
+
+使用 Docker 启动应用（PostgreSQL 需另外准备）：
+
+```bash
+docker build -t ash .
+docker run --env-file .env -p 8080:8080 ash
+```
+
+启动后访问 `/healthz` 检查服务状态，再打开 `/dashboard` 登录。若直接用 Python
+运行，请先把 `.env` 中的配置导入当前 shell，再执行 `python main.py`。
 
 ## Browser chat
 

@@ -11,9 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制项目文件
 COPY . .
 
-# 端口（Render 等平台会通过 PORT 环境变量分配）
-# 默认 8000
-ENV PORT=8000
+# 端口（Render 等平台仍可通过 PORT 环境变量覆盖）
+ENV PORT=8080
 
 # 启动网关
 CMD ["python", "main.py"]

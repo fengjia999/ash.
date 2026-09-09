@@ -118,6 +118,7 @@ class PageLoadingAssetTests(unittest.TestCase):
         self.assertIn("https://github.com/fengjia999/Ash-public", readme)
         self.assertIn("https://github.com/fengjia999/Photon", readme)
         self.assertIn("Advanced integration", readme)
+        self.assertIn("启动时必须连接 PostgreSQL", readme)
 
     def test_mobile_sidebar_uses_a_click_blocking_backdrop(self):
         root = Path(__file__).resolve().parents[1]
