@@ -359,9 +359,19 @@ MCP logs. When `MCP_SERVERS_JSON` is set, it takes precedence over the legacy
 
 ## Photon iMessage notifications
 
-The optional standalone Photon Bridge service turns iMessage into a personal
-frontend and gives heartbeat checks a direct HTTP notification tool. Configure
-both values to expose `send_imessage_notification` to newly created conversations:
+The optional standalone [Photon Bridge](https://github.com/fengjia999/Photon)
+turns iMessage into a personal frontend and gives heartbeat checks a direct HTTP
+notification tool.
+
+> **Advanced integration / 高级集成：** Photon is not an install-and-enable
+> feature. It must be deployed as a separate service and requires Photon Spectrum
+> project credentials, E.164 sender allowlists, gateway authentication, an
+> independent bridge secret, and correctly secured network endpoints. It is
+> intended for users who are comfortable deploying and debugging multiple
+> cooperating services.
+
+After deploying the bridge, configure both values to expose
+`send_imessage_notification` to newly created conversations:
 
 ```env
 PHOTON_NOTIFY_URL=https://your-photon-bridge.example/notify

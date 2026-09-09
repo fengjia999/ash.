@@ -116,6 +116,8 @@ class PageLoadingAssetTests(unittest.TestCase):
         self.assertIn("面向昂贵模型", readme)
         self.assertIn("MCP", readme)
         self.assertIn("https://github.com/fengjia999/Ash-public", readme)
+        self.assertIn("https://github.com/fengjia999/Photon", readme)
+        self.assertIn("Advanced integration", readme)
 
     def test_mobile_sidebar_uses_a_click_blocking_backdrop(self):
         root = Path(__file__).resolve().parents[1]
