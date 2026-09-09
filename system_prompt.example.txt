@@ -1,0 +1,9 @@
+<!-- 这是公开示例。请在 Dashboard 中编辑，或复制为 system_prompt.txt 后填写。 -->
+
+<!-- section:Identity editable priority:100 -->
+
+<!-- end -->
+
+<!-- section:Interaction editable priority:80 -->
+
+<!-- end -->

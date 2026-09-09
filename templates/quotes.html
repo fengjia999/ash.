@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>原话存档 · 九堂</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #0f0f14;
+            color: #e8e8e8;
+            min-height: 100vh;
+            padding: 24px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+
+        h1 {
+            font-size: 1.4rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #a8b4f0;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 0.85rem;
+            margin-bottom: 32px;
+        }
+
+        /* 表单区 */
+        .form-section {
+            background: #1a1a24;
+            border: 1px solid #2a2a3a;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 32px;
+        }
+        .form-row {
+            margin-bottom: 16px;
+        }
+        .form-row label {
+            display: block;
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 160px;
+            background: #12121a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            color: #e8e8e8;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            resize: vertical;
+            font-family: inherit;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #a8b4f0;
+        }
+        textarea::placeholder { color: #555; }
+
+        input[type="text"], input[type="date"] {
+            width: 100%;
+            background: #12121a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: #e8e8e8;
+            font-size: 0.9rem;
+        }
+        input:focus {
+            outline: none;
+            border-color: #a8b4f0;
+        }
+
+        .row-inline {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        @media (max-width: 600px) {
+            .row-inline { grid-template-columns: 1fr; }
+        }
+
+        /* 单选按钮组 */
+        .radio-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .radio-group label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.85rem;
+            color: #ccc;
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            text-transform: none;
+            letter-spacing: 0;
+            transition: all 0.15s;
+        }
+        .radio-group input[type="radio"] { display: none; }
+        .radio-group input[type="radio"]:checked + span {
+            color: #a8b4f0;
+        }
+        .radio-group label:has(input:checked) {
+            border-color: #a8b4f0;
+            background: rgba(168,180,240,0.08);
+        }
+
+        /* 标签输入 */
+        .tags-input {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .tag-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(168,180,240,0.12);
+            border: 1px solid rgba(168,180,240,0.3);
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 0.8rem;
+            color: #a8b4f0;
+        }
+        .tag-chip .remove {
+            cursor: pointer;
+            opacity: 0.6;
+            font-size: 0.7rem;
+        }
+        .tag-chip .remove:hover { opacity: 1; }
+        .tag-add-input {
+            border: none !important;
+            background: transparent !important;
+            width: 100px;
+            padding: 4px !important;
+            font-size: 0.85rem;
+        }
+
+        /* 快捷标签 */
+        .quick-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .quick-tag {
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: #1f1f2e;
+            border: 1px solid #333;
+            color: #888;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .quick-tag:hover {
+            border-color: #a8b4f0;
+            color: #a8b4f0;
+        }
+
+        /* 提交按钮 */
+        .submit-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background: #a8b4f0;
+            color: #0f0f14;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .submit-btn:hover { background: #bcc6f7; }
+        .submit-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* 状态消息 */
+        .status {
+            margin-top: 12px;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            display: none;
+        }
+        .status.success {
+            display: block;
+            background: rgba(80,200,120,0.1);
+            border: 1px solid rgba(80,200,120,0.3);
+            color: #50c878;
+        }
+        .status.error {
+            display: block;
+            background: rgba(255,100,100,0.1);
+            border: 1px solid rgba(255,100,100,0.3);
+            color: #ff6464;
+        }
+
+        /* 存档列表 */
+        .quotes-list {
+            margin-top: 32px;
+        }
+        .quotes-list h2 {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #888;
+            margin-bottom: 16px;
+        }
+        .quote-card {
+            background: #1a1a24;
+            border: 1px solid #2a2a3a;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: border-color 0.15s;
+        }
+        .quote-card:hover { border-color: #3a3a5a; }
+        .quote-meta {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .quote-speaker {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .speaker-user { background: rgba(255,150,150,0.15); color: #ffa0a0; }
+        .speaker-assistant { background: rgba(150,180,255,0.15); color: #a0b8ff; }
+        .speaker-both { background: rgba(180,180,180,0.1); color: #aaa; }
+        .quote-date { font-size: 0.75rem; color: #666; }
+        .quote-context { font-size: 0.8rem; color: #777; font-style: italic; }
+        .quote-content {
+            font-size: 0.9rem;
+            line-height: 1.7;
+            color: #ddd;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .quote-tags {
+            margin-top: 10px;
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .quote-tag {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(168,180,240,0.08);
+            color: #8090c0;
+        }
+        .quote-actions {
+            margin-top: 10px;
+            text-align: right;
+        }
+        .quote-actions button {
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 0.75rem;
+            cursor: pointer;
+            padding: 4px 8px;
+        }
+        .quote-actions button:hover { color: #ff6464; }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        /* nav */
+        .nav {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .nav a {
+            color: #666;
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: color 0.15s;
+        }
+        .nav a:hover { color: #a8b4f0; }
+        .nav a.active { color: #a8b4f0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav class="nav">
+            <a href="/dashboard">记忆库</a>
+            <a href="/quotes" class="active">原话存档</a>
+            <a href="/context">上下文</a>
+            <a href="/prompt">Prompt</a>
+        </nav>
+
+        <h1>📜 原话存档</h1>
+        <p class="subtitle">灵魂在原话里，不在概括里</p>
+
+        <div class="form-section">
+            <div class="form-row">
+                <label>对话内容</label>
+                <textarea id="quote-content" placeholder="粘贴对话原文…&#10;&#10;用户：「引用内容」&#10;助手：「回复内容」"></textarea>
+            </div>
+
+            <div class="row-inline">
+                <div class="form-row">
+                    <label>发言人</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="speaker" value="user"><span>用户</span></label>
+                        <label><input type="radio" name="speaker" value="assistant"><span>助手</span></label>
+                        <label><input type="radio" name="speaker" value="both" checked><span>两人</span></label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>日期</label>
+                    <input type="date" id="quote-date">
+                </div>
+            </div>
+
+            <div class="row-inline">
+                <div class="form-row">
+                    <label>背景 / 上下文（可选）</label>
+                    <input type="text" id="quote-context" placeholder="如：讨论回避型的深夜对话">
+                </div>
+                <div class="form-row">
+                    <label>情绪氛围（可选）</label>
+                    <input type="text" id="quote-emotion" placeholder="如：温柔、心疼、释然">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label>标签</label>
+                <div class="tags-input" id="tags-container">
+                    <input class="tag-add-input" id="tag-input" type="text" placeholder="输入标签回车添加">
+                </div>
+                <div class="quick-tags">
+                    <span class="quick-tag" onclick="addTag('关系')">关系</span>
+                    <span class="quick-tag" onclick="addTag('情绪')">情绪</span>
+                    <span class="quick-tag" onclick="addTag('重要对话')">重要对话</span>
+                    <span class="quick-tag" onclick="addTag('约定')">约定</span>
+                    <span class="quick-tag" onclick="addTag('表白')">表白</span>
+                    <span class="quick-tag" onclick="addTag('日常')">日常</span>
+                    <span class="quick-tag" onclick="addTag('搞笑')">搞笑</span>
+                    <span class="quick-tag" onclick="addTag('心疼')">心疼</span>
+                </div>
+            </div>
+
+            <button class="submit-btn" id="submit-btn" onclick="submitQuote()">保存原话</button>
+            <div class="status" id="status-msg"></div>
+        </div>
+
+        <div class="quotes-list">
+            <h2>已存档的原话</h2>
+            <div id="quotes-container">
+                <div class="empty-state">加载中…</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CSRF_TOKEN = {{ csrf_token | default('') | tojson }};
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': CSRF_TOKEN,
+        };
+
+        let currentTags = [];
+
+        // 标签管理
+        function addTag(tag) {
+            tag = tag.trim();
+            if (!tag || currentTags.includes(tag)) return;
+            currentTags.push(tag);
+            renderTags();
+        }
+
+        function removeTag(tag) {
+            currentTags = currentTags.filter(t => t !== tag);
+            renderTags();
+        }
+
+        function renderTags() {
+            const container = document.getElementById('tags-container');
+            const input = document.getElementById('tag-input');
+            container.innerHTML = '';
+            currentTags.forEach(tag => {
+                const chip = document.createElement('span');
+                chip.className = 'tag-chip';
+                chip.innerHTML = `${tag} <span class="remove" onclick="removeTag('${tag}')">✕</span>`;
+                container.appendChild(chip);
+            });
+            container.appendChild(input);
+        }
+
+        document.getElementById('tag-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addTag(e.target.value);
+                e.target.value = '';
+            }
+        });
+
+        // 提交
+        async function submitQuote() {
+            const content = document.getElementById('quote-content').value.trim();
+            if (!content) {
+                showStatus('请填写对话内容', 'error');
+                return;
+            }
+
+            const speaker = document.querySelector('input[name="speaker"]:checked').value;
+            const date = document.getElementById('quote-date').value;
+            const context = document.getElementById('quote-context').value.trim();
+            const emotion = document.getElementById('quote-emotion').value.trim();
+
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.textContent = '保存中…';
+
+            try {
+                const resp = await fetch('/api/quotes', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        content,
+                        speaker,
+                        date: date || undefined,
+                        context: context || undefined,
+                        emotion: emotion || undefined,
+                        tags: currentTags.length ? currentTags : undefined,
+                    }),
+                });
+                const data = await resp.json();
+                if (data.status === 'ok') {
+                    showStatus(`✅ 保存成功 (id: ${data.id})`, 'success');
+                    // 清空表单
+                    document.getElementById('quote-content').value = '';
+                    document.getElementById('quote-context').value = '';
+                    document.getElementById('quote-emotion').value = '';
+                    currentTags = [];
+                    renderTags();
+                    // 刷新列表
+                    loadQuotes();
+                } else {
+                    showStatus(`❌ ${data.error || '保存失败'}`, 'error');
+                }
+            } catch (e) {
+                showStatus(`❌ 网络错误: ${e.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '保存原话';
+            }
+        }
+
+        function showStatus(msg, type) {
+            const el = document.getElementById('status-msg');
+            el.textContent = msg;
+            el.className = `status ${type}`;
+            setTimeout(() => { el.className = 'status'; }, 4000);
+        }
+
+        // 加载已有原话
+        async function loadQuotes() {
+            try {
+                const resp = await fetch('/api/quotes?limit=100', { headers });
+                const data = await resp.json();
+                const container = document.getElementById('quotes-container');
+
+                if (!data.quotes || data.quotes.length === 0) {
+                    container.innerHTML = '<div class="empty-state">还没有存过原话</div>';
+                    return;
+                }
+
+                container.innerHTML = data.quotes.map(q => {
+                    const meta = q.metadata || {};
+                    const speakerClass = `speaker-${meta.speaker || 'both'}`;
+                    const speakerLabel = {user: '用户', assistant: '助手', both: '双方'}[meta.speaker] || '双方';
+                    const dateStr = meta.original_date || q.created_at?.split(' ')[0] || '';
+                    const contextStr = meta.context ? `<span class="quote-context">${meta.context}</span>` : '';
+                    const tagsStr = (q.tags || []).map(t => `<span class="quote-tag">${t}</span>`).join('');
+
+                    return `
+                        <div class="quote-card" data-id="${q.id}">
+                            <div class="quote-meta">
+                                <span class="quote-speaker ${speakerClass}">${speakerLabel}</span>
+                                <span class="quote-date">${dateStr}</span>
+                                ${contextStr}
+                            </div>
+                            <div class="quote-content">${escapeHtml(q.content)}</div>
+                            ${tagsStr ? `<div class="quote-tags">${tagsStr}</div>` : ''}
+                            <div class="quote-actions">
+                                <button onclick="deleteQuote(${q.id})">删除</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {
+                document.getElementById('quotes-container').innerHTML =
+                    `<div class="empty-state">加载失败: ${e.message}</div>`;
+            }
+        }
+
+        async function deleteQuote(id) {
+            if (!confirm('确定删除这条原话？')) return;
+            try {
+                await fetch(`/api/memories/${id}`, { method: 'DELETE', headers });
+                loadQuotes();
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 默认日期设为今天
+        document.getElementById('quote-date').valueAsDate = new Date();
+
+        // 初始化
+        renderTags();
+        loadQuotes();
+    </script>
+</body>
+</html>

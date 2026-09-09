@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#e9e2d7">
+    <title>Memory Gateway</title>
+    <link rel="icon" href="/static/ash-icon.png" type="image/png">
+    <link rel="shortcut icon" href="/static/ash-icon.png">
+    <link rel="apple-touch-icon" href="/static/ash-icon.png">
+    <link rel="manifest" href="/static/site.webmanifest">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v={{ static_version }}">
+</head>
+<body>
+<button class="mobile-history-toggle" aria-label="打开控制侧栏" aria-expanded="false" onclick="toggleHistorySidebar()">
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M4 7h16M4 12h16M4 17h16"/>
+    </svg>
+</button>
+<button type="button" class="mobile-sidebar-backdrop" aria-label="收起控制侧栏" aria-hidden="true" tabindex="-1" onclick="toggleHistorySidebar()"></button>
+<div class="dashboard">
+
+    <!-- ══ Sidebar ══ -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <svg class="logo-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <div>
+                    <div class="logo-text">Memory Gateway</div>
+                    <div class="logo-sub">ASH · MEMORY OS</div>
+                </div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item" data-section="standing">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                    <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/>
+                </svg>
+                <span class="nav-label">记忆</span>
+            </a>
+
+            <a href="#" class="nav-item active" data-section="conversations" aria-current="page">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>
+                </svg>
+                <span class="nav-label">会话</span>
+            </a>
+
+            <a href="#" class="nav-item" data-section="manage" hidden>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="8" y1="6" x2="21" y2="6"/>
+                    <line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/>
+                    <line x1="3" y1="6" x2="3.01" y2="6"/>
+                    <line x1="3" y1="12" x2="3.01" y2="12"/>
+                    <line x1="3" y1="18" x2="3.01" y2="18"/>
+                </svg>
+                <span class="nav-label">碎片录</span>
+            </a>
+
+            <a href="#" class="nav-item" data-section="quotes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 3v18h18"/>
+                    <path d="M7 15l3-3 3 2 5-7"/>
+                </svg>
+                <span class="nav-label">用量</span>
+            </a>
+
+            <a href="#" class="nav-item" data-section="heartbeats">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12h4l2-6 4 12 2-6h6"/>
+                </svg>
+                <span class="nav-label">心跳</span>
+            </a>
+
+            <a href="#" class="nav-item" data-section="settings">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>
+                </svg>
+                <span class="nav-label">设置</span>
+            </a>
+
+            <a href="#" class="nav-item" data-section="prompts">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4h16v16H4z"/>
+                    <path d="M8 9h8M8 13h8M8 17h5"/>
+                </svg>
+                <span class="nav-label">提示词</span>
+            </a>
+
+            <a href="#" class="nav-item" data-section="import">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span class="nav-label">导入</span>
+            </a>
+
+            <a href="#" class="nav-item" data-section="export">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <span class="nav-label">备份</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="#" class="nav-item" onclick="logoutDashboard(event)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h6v18h-6"/>
+                </svg>
+                <span class="nav-label">退出登录</span>
+            </a>
+            {% if public_repository_url %}
+            <a href="{{ public_repository_url }}" target="_blank" rel="noopener noreferrer" class="nav-item">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                <span class="nav-label">源码</span>
+            </a>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- ══ Main ══ -->
+    <main class="main-content">
+
+        <section id="section-conversations" class="section active conversation-hub-section">
+            <div class="conversation-library" aria-label="会话列表">
+                <div class="conversation-frame-shell">
+                    <iframe id="conversation-list-frame" class="conversation-list-frame" title="会话列表"></iframe>
+                    <div class="conversation-frame-status" id="conversation-list-status" role="status">
+                        <span id="conversation-list-status-text">正在加载会话…</span>
+                        <button type="button" id="conversation-list-retry" onclick="retryConversationFrame('list')" hidden>重试</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="conversation-detail-layer" id="conversation-detail-layer" aria-hidden="true">
+                <div class="conversation-detail-dialog">
+                    <iframe id="conversation-detail-frame" class="conversation-detail-frame" title="会话"></iframe>
+                    <div class="conversation-frame-status" id="conversation-detail-status" role="status">
+                        <span id="conversation-detail-status-text">正在加载消息…</span>
+                        <button type="button" id="conversation-detail-retry" onclick="retryConversationFrame('detail')" hidden>重试</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Legacy 记忆碎片：只读陈列，有数据时才显示入口 -->
+        <section id="section-manage" class="section" hidden>
+            <div class="section-header">
+                <h1>碎片录</h1>
+                <span class="section-count" id="stats"></span>
+            </div>
+            <div class="fragment-ledger" id="memorySections"></div>
+        </section>
+
+        <!-- 导入 -->
+        <section id="section-import" class="section">
+            <div class="section-header">
+                <h1>导入</h1>
+            </div>
+
+            <div class="card import-card">
+                <div class="tabs import-tabs">
+                    <button type="button" class="tab active" data-tab="json">完整恢复</button>
+                    <button type="button" class="tab" data-tab="text">旧碎片</button>
+                </div>
+
+                <div id="tab-json" class="tab-panel active">
+                    <div class="import-panel-heading">
+                        <h2>恢复备份</h2>
+                        <span>提示词 · 记忆 · 后台任务 · 会话</span>
+                    </div>
+
+                    <label class="import-dropzone">
+                        <input type="file" id="jsonFile" accept=".json">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 16V4M7 9l5-5 5 5"/>
+                            <path d="M5 14v5h14v-5"/>
+                        </svg>
+                        <span>
+                            <strong>选择备份文件</strong>
+                            <small id="jsonFileName">JSON</small>
+                        </span>
+                    </label>
+
+                    <div class="divider"><span>或粘贴 JSON</span></div>
+
+                    <div class="form-group import-textarea-wrap">
+                        <textarea id="jsonInput" class="textarea" rows="6" placeholder="粘贴完整备份…"></textarea>
+                    </div>
+
+                    <div class="import-actions">
+                        <button type="button" class="btn btn-primary" onclick="previewJson()">查看并恢复</button>
+                    </div>
+                    <div id="jsonPreview" class="preview-box"></div>
+                </div>
+
+                <div id="tab-text" class="tab-panel">
+                    <div class="import-panel-heading legacy">
+                        <h2>导入旧碎片</h2>
+                        <span>兼容旧版纯文本记忆</span>
+                    </div>
+
+                    <label class="import-dropzone legacy">
+                        <input type="file" id="txtFile" accept=".txt">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 16V4M7 9l5-5 5 5"/>
+                            <path d="M5 14v5h14v-5"/>
+                        </svg>
+                        <span>
+                            <strong>选择文本文件</strong>
+                            <small id="txtFileName">TXT · 每行一条</small>
+                        </span>
+                    </label>
+
+                    <div class="divider"><span>或直接输入</span></div>
+
+                    <div class="form-group import-textarea-wrap">
+                        <textarea id="txtInput" class="textarea" rows="6"
+                            placeholder="每行一条记忆&#10;用户的名字叫…&#10;用户喜欢…"></textarea>
+                    </div>
+
+                    <div class="import-actions legacy">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="skipScore">
+                            <span>跳过评分</span>
+                        </label>
+                        <button type="button" class="btn btn-secondary" onclick="doTextImport()">导入碎片录</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="import-result" class="msg-container"></div>
+        </section>
+
+        <!-- 备份 -->
+        <section id="section-export" class="section">
+            <div class="section-header">
+                <h1>备份</h1>
+            </div>
+
+            <div class="card">
+                <div class="export-info">
+                    <svg class="export-icon" width="28" height="28" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                        <polyline points="17 21 17 13 7 13 7 21"/>
+                        <polyline points="7 3 7 8 15 8"/>
+                    </svg>
+                    <div class="export-text">
+                        <h3>完整备份</h3>
+                        <p>人格提示词、记忆、后台提取与遗忘状态、真实会话和交接摘要</p>
+                    </div>
+                </div>
+
+                <div class="export-stats" id="export-stats">统计中…</div>
+                <br>
+                <button type="button" class="btn btn-primary" onclick="doExport()">下载 JSON</button>
+            </div>
+
+            <div class="card tips-card">
+                <h4>提示</h4>
+                <ul>
+                    <li>导出文件可通过「导入 → JSON 恢复」完整恢复</li>
+                    <li>完整恢复会覆盖当前提示词、记忆条目、日记、后台记忆任务和会话</li>
+                    <li>建议定期备份</li>
+                    <li>可用于迁移到其他实例</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- 记忆 -->
+        <section id="section-standing" class="section">
+            <div class="section-header">
+                <h1>记忆</h1>
+                <span class="section-count" id="standing-stats"></span>
+            </div>
+
+            <div class="standing-view-switch" role="group" aria-label="记忆视图">
+                <button type="button" class="active" data-standing-view="directory" onclick="switchStandingView('directory')">记忆条目</button>
+                <button type="button" data-standing-view="fragments" onclick="switchStandingView('fragments')">碎片记忆</button>
+                <button type="button" data-standing-view="long-term" onclick="switchStandingView('long-term')">日记</button>
+            </div>
+
+            <div class="standing-view active" id="standing-view-directory">
+            <div class="standing-memory-layout">
+                <div class="standing-memory-toolbar">
+                    <div class="standing-memory-heading">
+                        <h3>管理记忆</h3>
+                        <span id="standing-active-count"></span>
+                    </div>
+                    <button type="button" class="standing-add-memory" onclick="openStandingMemoryEditor()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                        <span>添加固定记忆</span>
+                    </button>
+                </div>
+
+                <div id="standing-msg" class="msg-container"></div>
+                <div class="standing-pending" id="standing-pending-section" style="display:none">
+                    <div class="standing-list-title">
+                        <h3>Pending</h3>
+                        <span id="standing-pending-count"></span>
+                    </div>
+                    <div id="standing-pending-list" class="standing-list"></div>
+                </div>
+                <div class="standing-active kelivo-memory-section">
+                    <div id="standing-active-list" class="standing-list kelivo-memory-list"></div>
+                </div>
+            </div>
+            </div>
+
+            <div class="standing-view" id="standing-view-fragments">
+                <div class="standing-memory-layout">
+                    <div class="standing-memory-toolbar">
+                        <div class="standing-memory-heading">
+                            <h3>碎片记忆</h3>
+                            <span id="memory-fragment-count"></span>
+                        </div>
+                    </div>
+                    <p id="memory-extraction-status" class="credential-help" role="status"></p>
+                    <p class="credential-help">这里保存从旧日记小摘要迁移或从会话提取的无标题短文本。碎片不使用日期元数据；必要的时间直接写在内容开头。</p>
+                    <div id="memory-fragment-list" class="long-term-memory-list"></div>
+                    <h3>待遗忘</h3>
+                    <p class="credential-help">这些碎片已暂停召回。保留会重新开始衰减计时；确认遗忘后删除。</p>
+                    <div id="fragment-forgetting-list" class="long-term-memory-list"></div>
+                </div>
+            </div>
+
+            <div class="standing-view" id="standing-view-long-term">
+                <div class="standing-memory-layout">
+                    <div class="standing-memory-toolbar">
+                        <div class="standing-memory-heading">
+                            <h3>日记</h3>
+                            <span id="long-term-count"></span>
+                        </div>
+                        <div class="long-term-create-actions">
+                            <button type="button" class="btn btn-secondary btn-sm long-term-select-toggle" id="long-term-select-toggle" onclick="toggleLongTermSelectionMode()">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                                    <rect x="3" y="14" width="7" height="7" rx="1"/><path d="m15 17 2 2 4-5"/>
+                                </svg>
+                                <span>多选</span>
+                            </button>
+                            <button type="button" class="standing-add-memory" onclick="openLongTermMemoryEditor()">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                                    <path d="M12 5v14M5 12h14"/>
+                                </svg>
+                                <span>写一页</span>
+                            </button>
+                            <button type="button" class="long-term-diary-action" id="long-term-diary-btn" onclick="createLongTermDiaryDraft()">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 20h9"/>
+                                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                                </svg>
+                                <span>根据对话写日记</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="long-term-selection-toolbar" id="long-term-selection-toolbar" hidden>
+                        <span id="long-term-selection-count">已选 0 条</span>
+                        <div class="long-term-selection-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" id="long-term-select-all" onclick="toggleSelectAllLongTermMemories()">全选</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleLongTermSelectionMode(false)">取消</button>
+                            <button type="button" class="btn btn-danger btn-sm" id="long-term-delete-selected" onclick="deleteSelectedLongTermMemories()" disabled>删除所选</button>
+                        </div>
+                    </div>
+                    <div id="long-term-msg" class="msg-container"></div>
+                    <div class="standing-pending" id="long-term-pending-section" style="display:none">
+                        <div class="standing-list-title">
+                            <h3>Pending</h3>
+                            <span id="long-term-pending-count"></span>
+                        </div>
+                        <div id="long-term-pending-list" class="standing-list"></div>
+                    </div>
+                    <div id="long-term-list" class="long-term-memory-list"></div>
+                </div>
+            </div>
+
+        </section>
+
+        <div class="memory-editor-modal" id="memory-editor-modal" aria-hidden="true">
+            <button type="button" class="memory-editor-backdrop" aria-label="关闭" onclick="closeStandingMemoryEditor()"></button>
+            <div class="memory-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="memory-editor-title">
+                <div class="memory-editor-head">
+                    <h3 id="memory-editor-title">记忆</h3>
+                    <button type="button" class="memory-editor-close" aria-label="关闭" onclick="closeStandingMemoryEditor()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                            <path d="M18 6 6 18M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="memory-editor-body">
+                    <textarea id="memory-editor-content" class="textarea" rows="8" placeholder="输入记忆内容"></textarea>
+                    <div id="memory-editor-msg" class="msg-container" role="status" aria-live="polite"></div>
+                    <div class="memory-editor-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeStandingMemoryEditor()">取消</button>
+                        <button type="button" class="btn btn-primary" id="memory-editor-save" onclick="saveStandingMemory()">保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="memory-editor-modal" id="long-term-memory-editor-modal" aria-hidden="true">
+            <button type="button" class="memory-editor-backdrop" aria-label="关闭" onclick="closeLongTermMemoryEditor()"></button>
+            <div class="memory-editor-dialog long-term-memory-dialog" role="dialog" aria-modal="true" aria-labelledby="long-term-memory-editor-title">
+                <div class="memory-editor-head">
+                    <h3 id="long-term-memory-editor-title">一页日记</h3>
+                    <button type="button" class="memory-editor-close" aria-label="关闭" onclick="closeLongTermMemoryEditor()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                            <path d="M18 6 6 18M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="memory-editor-body long-term-memory-editor-body">
+                    <div class="long-term-editor-heading">
+                        <label class="long-term-date-field">
+                            <span>日期</span>
+                            <input id="long-term-memory-date" class="control-input" type="date">
+                            <svg class="long-term-date-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M8 2v4M16 2v4M3 10h18"/>
+                                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                                <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>
+                            </svg>
+                        </label>
+                        <input id="long-term-memory-title" class="control-input long-term-title-input" type="text" maxlength="200" placeholder="这一页的标题" aria-label="标题">
+                    </div>
+                    <div class="long-term-summary-field">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="openLongTermSummaryEditor(longTermEditingId)">关键词</button>
+                        <span id="long-term-memory-summary-preview" class="long-term-summary-preview"></span>
+                    </div>
+                    <textarea id="long-term-memory-content" class="textarea long-term-memory-content-input" rows="16" placeholder="写下这一天……" aria-label="日记内容"></textarea>
+                    <div id="long-term-memory-editor-msg" class="msg-container" role="status" aria-live="polite"></div>
+                    <div class="memory-editor-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeLongTermMemoryEditor()">取消</button>
+                        <button type="button" class="btn btn-primary" id="long-term-memory-editor-save" onclick="saveLongTermMemory()">保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="memory-editor-modal" id="long-term-summary-modal" aria-hidden="true">
+            <button type="button" class="memory-editor-backdrop" aria-label="关闭" onclick="closeLongTermSummaryEditor()"></button>
+            <div class="memory-editor-dialog long-term-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="long-term-summary-title">
+                <div class="memory-editor-head">
+                    <h3 id="long-term-summary-title">关键词</h3>
+                    <button type="button" class="memory-editor-close" aria-label="关闭" onclick="closeLongTermSummaryEditor()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                            <path d="M18 6 6 18M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="memory-editor-body">
+                    <textarea id="long-term-summary-content" class="textarea long-term-summary-text" rows="8" placeholder="每行一个关键词"></textarea>
+                    <div class="memory-editor-actions">
+                        <span id="long-term-summary-msg"></span>
+                        <button type="button" class="btn btn-primary" onclick="saveLongTermSummary()">保存</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeLongTermSummaryEditor()">关闭</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Heartbeat activity -->
+        <section id="section-heartbeats" class="section">
+            <div class="section-header">
+                <h1>心跳活动</h1>
+                <span class="section-count" id="heartbeat-activity-count"></span>
+            </div>
+            <div class="heartbeat-settings-panel">
+                <div class="heartbeat-settings-head">
+                    <div>
+                        <h3>心跳设置</h3>
+                        <span id="heartbeat-settings-note">载入中…</span>
+                    </div>
+                    <label class="heartbeat-switch">
+                        <input type="checkbox" id="heartbeatEnabled">
+                        <span></span>
+                    </label>
+                </div>
+                <div class="heartbeat-settings-grid">
+                    <label class="heartbeat-setting-field">
+                        <span>触发间隔</span>
+                        <div class="heartbeat-number-input">
+                            <input type="number" id="heartbeatInterval" min="1" max="1440" value="30">
+                            <span>分钟</span>
+                        </div>
+                    </label>
+                    <label class="heartbeat-setting-field">
+                        <span>路由</span>
+                        <select id="heartbeatProvider" class="control-input">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                        </select>
+                    </label>
+                    <label class="heartbeat-setting-field heartbeat-model-field">
+                        <span>模型</span>
+                        <input type="text" id="heartbeatModel" class="control-input" placeholder="留空使用路由默认模型">
+                    </label>
+                </div>
+                <div class="heartbeat-settings-actions">
+                    <span id="heartbeat-settings-msg"></span>
+                    <button type="button" class="btn btn-primary" onclick="saveHeartbeatSettings()">保存设置</button>
+                </div>
+            </div>
+            <div class="toolbar-card">
+                <div class="toolbar">
+                    <span class="toolbar-note">模型苏醒后的判断、工具调用与结果</span>
+                </div>
+                <div class="toolbar-actions">
+                    <button type="button" class="btn btn-secondary" onclick="loadHeartbeatActivities()">刷新</button>
+                </div>
+            </div>
+            <div id="heartbeat-activity-list" class="heartbeat-activity-list"></div>
+        </section>
+
+        <!-- Prompt Console -->
+        <section id="section-prompts" class="section prompt-console-section">
+            <div class="section-header">
+                <h1>提示词</h1>
+            </div>
+            <p class="credential-help prompt-console-note">编辑主人格及交互提示词。实际拼接时，Interaction 位于常驻记忆和流动记忆之后。</p>
+            <div class="prompt-console-frame-shell">
+                <iframe id="prompt-console-frame" class="prompt-console-frame" title="提示词编辑器"></iframe>
+            </div>
+        </section>
+
+        <!-- Settings -->
+        <section id="section-settings" class="section">
+            <div class="section-header">
+                <h1>设置</h1>
+            </div>
+            <div class="heartbeat-settings-panel anthropic-credential-panel">
+                <div class="heartbeat-settings-head">
+                    <div>
+                        <h3>Anthropic 路由 Key</h3>
+                        <span id="anthropic-credential-note">载入中…</span>
+                    </div>
+                </div>
+                <p class="credential-help">从 Dashboard 保存到数据库，服务重启后仍然有效；接口不会返回 Key 明文，也不会放入网关备份。不用时可手动删除。</p>
+                <div class="credential-controls">
+                    <input type="password" id="anthropicCredentialKey" class="control-input" placeholder="粘贴或替换 API Key" maxlength="4000" autocomplete="new-password" spellcheck="false">
+                    <button type="button" class="btn btn-primary" onclick="saveAnthropicCredential()">保存 Key</button>
+                    <button type="button" class="btn btn-danger" id="anthropic-credential-delete" onclick="deleteAnthropicCredential()" disabled>删除 Key</button>
+                </div>
+                <div id="anthropic-credential-msg" class="provider-panel-msg"></div>
+            </div>
+            <div class="heartbeat-settings-panel">
+                <div class="heartbeat-settings-head">
+                    <div>
+                        <h3>聊天路由</h3>
+                        <span id="route-settings-note">载入中…</span>
+                    </div>
+                </div>
+                <div class="route-settings-grid">
+                    <label class="heartbeat-setting-field">
+                        <span>Provider</span>
+                        <select id="routeProvider" class="control-input">
+                            <option value="auto">Auto</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="heartbeat-settings-actions">
+                    <span id="route-settings-msg"></span>
+                    <button type="button" class="btn btn-primary" onclick="saveRouteSettings()">保存</button>
+                </div>
+            </div>
+            <div class="heartbeat-settings-panel openai-provider-panel">
+                <div class="heartbeat-settings-head">
+                    <div>
+                        <h3>OpenAI 供应商</h3>
+                        <span id="openai-provider-note">载入中…</span>
+                    </div>
+                    <button type="button" class="provider-add-button" onclick="toggleOpenAiProviderCreator()" title="添加供应商" aria-label="添加供应商">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="provider-create-form" id="openai-provider-create" hidden>
+                    <div class="provider-form-grid">
+                        <label class="heartbeat-setting-field">
+                            <span>名称</span>
+                            <input type="text" id="openaiProviderName" class="control-input" maxlength="80" autocomplete="off">
+                        </label>
+                        <label class="heartbeat-setting-field provider-url-field">
+                            <span>API URL</span>
+                            <input type="url" id="openaiProviderUrl" class="control-input" placeholder="https://openrouter.ai/api/v1" autocomplete="url">
+                        </label>
+                        <label class="heartbeat-setting-field">
+                            <span>API Key</span>
+                            <input type="password" id="openaiProviderKey" class="control-input" autocomplete="new-password">
+                        </label>
+                    </div>
+                    <div class="provider-form-actions">
+                        <label class="provider-active-choice">
+                            <input type="checkbox" id="openaiProviderActive">
+                            <span>活跃</span>
+                        </label>
+                        <div>
+                            <button type="button" class="btn btn-secondary" onclick="toggleOpenAiProviderCreator(false)">取消</button>
+                            <button type="button" class="btn btn-primary" onclick="createOpenAiProvider()">添加</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="openai-provider-list" class="openai-provider-list"></div>
+                <div id="openai-provider-msg" class="provider-panel-msg"></div>
+            </div>
+            <div class="heartbeat-settings-panel">
+                <div class="heartbeat-settings-head">
+                    <h3>历史会话</h3>
+                </div>
+                <div class="conversation-model-settings">
+                    <div class="conversation-model-row">
+                        <label class="heartbeat-switch" title="历史搜索">
+                            <input type="checkbox" id="historySearchEnabled">
+                            <span></span>
+                        </label>
+                        <strong>历史搜索</strong>
+                        <input type="url" id="historyEmbeddingUrl" class="control-input" placeholder="接口" autocomplete="url">
+                        <input type="text" id="historyEmbeddingModel" class="control-input" placeholder="模型" autocomplete="off">
+                        <input type="password" id="historyEmbeddingKey" class="control-input" placeholder="密钥" autocomplete="new-password">
+                        <label class="conversation-recall-budget" title="按相关性排序，设置碎片记忆自动召回可占用的最大输入 token 数">
+                            <span>自动召回 ≤</span>
+                            <input type="number" id="longTermRecallTokenBudget" class="control-input conversation-recall-budget-input" min="256" max="8000" step="1" inputmode="numeric">
+                            <span>tokens</span>
+                        </label>
+                    </div>
+                    <div class="conversation-model-row conversation-title-model-row">
+                        <label class="heartbeat-switch" title="自动标题">
+                            <input type="checkbox" id="historyTitleEnabled">
+                            <span></span>
+                        </label>
+                        <strong>自动标题</strong>
+                        <select id="historyTitleProvider" class="control-input">
+                            <option value="">供应商</option>
+                        </select>
+                        <input type="text" id="historyTitleModel" class="control-input" placeholder="模型" autocomplete="off">
+                    </div>
+                    <div class="conversation-model-row conversation-title-model-row">
+                        <span aria-hidden="true"></span>
+                        <strong>交接摘要</strong>
+                        <select id="handoffSummaryProvider" class="control-input">
+                            <option value="">环境变量</option>
+                        </select>
+                        <input type="text" id="handoffSummaryModel" class="control-input" placeholder="模型" autocomplete="off">
+                    </div>
+                    <div class="conversation-model-row conversation-title-model-row">
+                        <span aria-hidden="true"></span>
+                        <strong>记忆提取</strong>
+                        <select id="longTermSummaryProvider" class="control-input">
+                            <option value="">环境变量</option>
+                        </select>
+                        <input type="text" id="longTermSummaryModel" class="control-input" placeholder="模型" autocomplete="off">
+                    </div>
+                </div>
+                <div class="heartbeat-settings-actions">
+                    <span id="conversation-model-settings-msg"></span>
+                    <button type="button" class="btn btn-primary" onclick="saveConversationModelSettings()">保存</button>
+                </div>
+            </div>
+            <div class="heartbeat-settings-panel">
+                <div class="heartbeat-settings-head">
+                    <div>
+                        <h3>OCR</h3>
+                        <span id="ocr-settings-note">载入中…</span>
+                    </div>
+                    <label class="heartbeat-switch" title="启用 OCR">
+                        <input type="checkbox" id="ocrEnabled">
+                        <span></span>
+                    </label>
+                </div>
+                <div class="ocr-settings-grid">
+                    <label class="heartbeat-setting-field">
+                        <span>接口</span>
+                        <input type="url" id="ocrApiUrl" class="control-input" placeholder="https://example.com/v1/chat/completions" autocomplete="url">
+                    </label>
+                    <label class="heartbeat-setting-field">
+                        <span>模型</span>
+                        <input type="text" id="ocrModel" class="control-input" autocomplete="off">
+                    </label>
+                    <label class="heartbeat-setting-field">
+                        <span>密钥</span>
+                        <span class="ocr-secret-input">
+                            <input type="password" id="ocrApiKey" class="control-input" autocomplete="new-password">
+                            <button type="button" class="btn btn-secondary" id="ocrClearKey" onclick="clearOcrApiKey()">清除</button>
+                        </span>
+                    </label>
+                </div>
+                <div class="heartbeat-settings-actions">
+                    <span id="ocr-settings-msg"></span>
+                    <button type="button" class="btn btn-primary" onclick="saveOcrSettings()">保存</button>
+                </div>
+            </div>
+            <details class="heartbeat-settings-panel prompt-splice-panel" id="prompt-splice-panel" ontoggle="handlePromptPreviewToggle(event)">
+                <summary class="prompt-splice-summary">
+                    <span>
+                        <strong>全部提示词拼接</strong>
+                        <small>按实际主聊天顺序选择性展开查看</small>
+                    </span>
+                    <span id="prompt-splice-stats">展开后加载</span>
+                </summary>
+                <div class="prompt-splice-actions">
+                    <span id="prompt-splice-note"></span>
+                    <button type="button" class="btn btn-secondary btn-sm" id="prompt-splice-copy" onclick="copyPromptSplicePreview()" disabled>复制全部</button>
+                </div>
+                <div id="prompt-splice-sections" class="prompt-splice-sections"></div>
+            </details>
+            <div class="heartbeat-settings-panel project-about-panel">
+                <div class="heartbeat-settings-head">
+                    <div>
+                        <h3>关于 Ash</h3>
+                        <span>在原始框架之上持续生长的个人记忆网关</span>
+                    </div>
+                </div>
+                <p class="project-about-copy">
+                    感谢七堂伽藍_ 提供 AI Memory Gateway 的原始框架。Ash 在此基础上重构了记忆流程、面向昂贵模型的提示词缓存策略、多路由与会话管理，并加入了 MCP 工具体系。
+                </p>
+                <div class="project-about-links">
+                    {% if public_repository_url %}<a href="{{ public_repository_url }}" target="_blank" rel="noopener noreferrer">当前项目 · Ash</a>{% endif %}
+                    <a href="https://github.com/garan0613/ai-memory-gateway" target="_blank" rel="noopener noreferrer">原始项目 · AI Memory Gateway</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Token Usage -->
+        <section id="section-quotes" class="section">
+            <div class="section-header">
+                <h1>Token 用量</h1>
+                <span class="section-count" id="usage-stats"></span>
+            </div>
+
+            <div class="usage-grid" id="usage-summary">
+                <div class="usage-stat-card"><span>今日 Token</span><strong id="usage-today">-</strong></div>
+                <div class="usage-stat-card"><span>近 7 天 Token</span><strong id="usage-week">-</strong></div>
+                <div class="usage-stat-card"><span>请求次数</span><strong id="usage-requests">-</strong></div>
+                <div class="usage-stat-card"><span>缓存命中 Token</span><strong id="usage-cache">-</strong></div>
+            </div>
+
+            <div class="card usage-ranking">
+                <div class="standing-list-title">
+                    <h3>模型用量排行</h3>
+                    <span id="usage-ranking-count"></span>
+                </div>
+                <div class="table-container usage-table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>排名</th>
+                                <th>模型</th>
+                                <th>Provider</th>
+                                <th>请求</th>
+                                <th>Input</th>
+                                <th>Output</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usage-ranking-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="standing-list-title">
+                    <h3>最近 30 天热视图</h3>
+                    <span id="usage-heatmap-total"></span>
+                </div>
+                <div class="usage-heatmap" id="usage-heatmap"></div>
+            </div>
+
+            <div class="card">
+                <div class="standing-list-title">
+                    <h3>最近请求</h3>
+                    <span id="usage-log-count"></span>
+                </div>
+                <div class="usage-table-wrap">
+                    <table class="data-table usage-log-table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>模型</th>
+                                <th>Provider</th>
+                                <th>Stream</th>
+                                <th>Input</th>
+                                <th>Output</th>
+                                <th>Total</th>
+                                <th>Cache Read</th>
+                                <th>Cache Create</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usage-log-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+
+<script>window.__MG_CSRF__ = {{ csrf_token | tojson }};</script>
+<script src="/static/js/dashboard.js?v={{ static_version }}"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Memory Gateway">
+  <rect width="512" height="512" rx="112" fill="#1e1912"/>
+  <rect x="25" y="25" width="462" height="462" rx="91" fill="none" stroke="#c9624c" stroke-width="18"/>
+  <path d="M92 124h105c31 0 59 16 75 42 16-26 44-42 75-42h73v264h-73c-39 0-75 18-99 49-24-31-60-49-99-49H92V124Z" fill="#f2ede4"/>
+  <path d="M256 174v238M119 161h73c27 0 50 11 64 31M393 161h-41c-42 0-75 27-96 59" fill="none" stroke="#b5442a" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

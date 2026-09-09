@@ -1,0 +1,18 @@
+{
+  "name": "Memory Gateway",
+  "short_name": "记忆",
+  "description": "记忆网关 Dashboard",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ede5d8",
+  "theme_color": "#1e1912",
+  "icons": [
+    {
+      "src": "/static/ash-icon.png",
+      "sizes": "2048x2048",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

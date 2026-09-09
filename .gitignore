@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+.deps/
+.env
+.env.*
+!.env.example
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql
+*.jsonl
+/backups/
+/exports/
+
+# 本地人格与预置记忆。公开仓库只保留 example 文件。
+system_prompt.txt
+seed_memories.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local nested worktrees and generated handoff notes
+/puxu/
+/COMMIT_SUMMARY.md
