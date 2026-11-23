@@ -1,408 +1,262 @@
 # Ash
 
-> 灰烬，是对话熄灭以后仍然留下的余辉。
+**一个为长期对话而生的私人 AI 交互系统。**
 
-Ash 是一个为长期运行的 AI 助手设计的自托管 Agent Runtime。它统一管理会话、
-分层记忆、提示词缓存、模型路由、MCP 工具与主动任务，让一次次彼此分离的对话能够
-留下可验证、可整理，也可以被遗忘的痕迹。
+Ash 将模型接入、会话、记忆、工具和交互界面放在同一套由自己控制的系统中。它不是公开运营的聊天服务，也不打算成为通用 AI 产品；它最初只是为了拥有一个更自由、更符合个人习惯的聊天空间。
 
-## 关于这个分支
+> **项目状态**：个人维护 · 第二次大型重构版本
+> **核心技术**：Python · PostgreSQL · Anthropic Messages / OpenAI-compatible API · MCP · Web UI
+> **公开仓库**：[fengjia999/Ash-public](https://github.com/fengjia999/Ash-public)
 
-Ash 基于七堂伽藍_ 的
-[AI Memory Gateway](https://github.com/garan0613/ai-memory-gateway)
-开发。感谢原作者提供网关的原始框架；当前项目已经在此基础上进行了大幅重构，主要包括：
+---
 
-- 重新设计记忆流程，将常驻记忆、流动摘要、碎片记忆与日记分开管理，并加入异步记忆提取、评分、召回、衰减和 Pending 确认机制。
-- 重构面向昂贵模型的提示词缓存策略与上下文边界，使稳定人格、常驻记忆和流动上下文能够尽可能复用 Prompt Cache；同时保留由用户主动控制的 `/compact` 与 `/switch` 会话交接方式。
-- 扩展 Anthropic 与 OpenAI 兼容接口的多路由、多供应商和独立模型配置。
-- 重构由网关持有上下文的会话管理，包括历史搜索、交接摘要、消息选择、切换及 Dashboard 会话界面。
-- 在原始框架之后加入 MCP 服务与工具接入，并扩展模型可用的记忆读写和会话搜索能力。
+## 从哪里来
 
-原项目的版权声明与 MIT License 保留在 [LICENSE](LICENSE) 中。
-当前公开版本位于 [fengjia999/Ash-public](https://github.com/fengjia999/Ash-public)。
+Ash 最初从一个精简的 RP 网关出发，经过长期的功能扩展与多轮重构，逐渐发展为独立的私人 AI 交互系统。
 
-> Ash 目前仍是实验性项目，接口、数据结构和交互方式可能继续变化。请勿在没有配置
-> 身份验证并理解模型调用费用的情况下直接暴露到公网。
+今天的 Ash 与早期原型在架构、记忆处理、会话管理和使用方式上已经有很大区别。最初的目标是**让对话变得好用**；现在更在意的是：**对话能否延续、记忆是否可信、工具是否可控，以及使用体验是否真正属于自己。**
 
-## Before you start
+这个项目由个人持续规划、测试、维护，并借助多个 AI 编程模型协作实现。它仍在生长，不以功能数量或产品化为目标。
 
-Ash 不是无状态的轻量转发器。当前版本启动时必须连接 PostgreSQL，用它保存会话、
-提示词和运行状态；即使关闭自动记忆，数据库仍然是必需依赖。
+## 设计原则
 
-运行要求：
+- **对话不依附于前端**：会话状态由网关管理，不同接入端可以延续同一段对话。
+- **记忆需要来源**：不仅保留整理后的记忆，也能够回到原始对话、日记与摘要中检索。
+- **重要修改由人确认**：长期记忆的新增、修改与删除通过 Pending 审核，而非让模型自行覆盖。
+- **上下文与成本可控**：明确缓存边界，按需要进行会话交接，不以静默删减历史为默认行为。
+- **交互服务于体验**：界面、角色、笔记、消息收藏与外部聊天入口都围绕实际使用习惯设计。
+- **自托管优先**：数据、凭据和部署由自己管理。
 
-- Python 3.12，或支持构建本仓库 Dockerfile 的容器环境
-- PostgreSQL
-- 至少一个兼容的模型供应商及其凭据
+## 系统概览
 
-复制公开模板并在本地填写配置；不要提交生成后的私人文件。程序不会自动加载
-`.env`，部署平台需要将其中的值设置为环境变量。未创建 `system_prompt.txt` 时，
-程序会使用空白的公开示例初始化提示词分区：
-
-```bash
-cp .env.example .env
-cp system_prompt.example.txt system_prompt.txt
+```text
+浏览器 / 外部聊天入口
+          │
+          ▼
+     Ash Gateway
+          │
+   ┌──────┼─────────┐
+   │      │         │
+ 会话管理  记忆系统    工具系统
+   │      │         │
+   │   原始对话检索   内置工具 / MCP
+   │   常驻 / 流动   前端工具续轮
+   │   日记 / 向量
+   └──────┼─────────┘
+          │
+  模型路由与上下文缓存
+          │
+ Anthropic / OpenAI-compatible
+          │
+      PostgreSQL
 ```
 
-Dashboard 默认指向本仓库，也可通过 `PUBLIC_REPOSITORY_URL` 改为自己的 fork。
-部署到公网前请阅读 [SECURITY.md](SECURITY.md)。
+这是一张逻辑示意图，并不代表各模块在进程或数据库中的实际分层。
 
-使用 Docker 启动应用（PostgreSQL 需另外准备）：
+## 界面预览
+
+<table>
+  <tr>
+    <th>主页面</th>
+    <th>日记页</th>
+    <th>记忆库</th>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/home.jpeg" alt="Ash 主页面" width="300"></td>
+    <td><img src="docs/assets/screenshots/diary.jpeg" alt="Ash 日记页" width="300"></td>
+    <td><img src="docs/assets/screenshots/memory-archive.jpeg" alt="Ash 记忆库" width="300"></td>
+  </tr>
+</table>
+
+## 跑起来
+
+需要安装 Docker。下面是在本机启动 PostgreSQL 和 Ash 的最短路径，所有命令均在仓库根目录执行。
+
+### 1. 创建 `.env`
+
+```bash
+cp system_prompt.example.txt system_prompt.txt
+
+read -rp "模型 ID: " ASH_MODEL
+read -rsp "OpenAI 兼容接口的 API Key: " ASH_API_KEY
+echo
+read -rsp "Dashboard 登录密码: " ASH_DASHBOARD_PASSWORD
+echo
+
+cat > .env <<EOF
+# Dashboard 与网关鉴权
+DASHBOARD_PASSWORD=${ASH_DASHBOARD_PASSWORD}
+GATEWAY_SECRET=$(openssl rand -hex 32)
+MCP_SECRET=$(openssl rand -hex 32)
+DASHBOARD_COOKIE_SECURE=false
+
+# 模型
+ROUTE_PROVIDER=openai
+DEFAULT_MODEL=${ASH_MODEL}
+OPENAI_API_URL=https://api.openai.com/v1/chat/completions
+OPENAI_API_KEY=${ASH_API_KEY}
+
+# 数据库与核心功能
+DATABASE_URL=postgresql://ash:ash_local_password@ash-postgres:5432/ash
+MEMORY_ENABLED=true
+CONTEXT_MANAGED=true
+TIMEZONE_HOURS=8
+PORT=8000
+EOF
+```
+
+如果使用其他 OpenAI 兼容接口，修改 `OPENAI_API_URL` 即可。
+
+`DASHBOARD_COOKIE_SECURE=false` 仅适用于本地 HTTP 环境；部署到 HTTPS 后请改为 `true`。
+
+示例中的 `ash_local_password` 仅用于本机快速启动。对外部署时，请同时修改 `.env` 中的 `DATABASE_URL` 和下面 PostgreSQL 容器的密码。
+
+### 2. 启动 PostgreSQL
+
+```bash
+docker network create ash-network 2>/dev/null || true
+docker volume create ash-postgres-data
+
+docker run -d \
+  --name ash-postgres \
+  --network ash-network \
+  --restart unless-stopped \
+  -e POSTGRES_USER=ash \
+  -e POSTGRES_PASSWORD=ash_local_password \
+  -e POSTGRES_DB=ash \
+  -v ash-postgres-data:/var/lib/postgresql/data \
+  postgres:16-alpine
+```
+
+### 3. 构建并启动 Ash
 
 ```bash
 docker build -t ash .
-docker run --env-file .env -p 8080:8080 ash
+
+docker run -d \
+  --name ash \
+  --network ash-network \
+  --restart unless-stopped \
+  --env-file .env \
+  -p 8000:8000 \
+  ash
 ```
 
-启动后访问 `/healthz` 检查服务状态，再打开 `/dashboard` 登录。若直接用 Python
-运行，请先把 `.env` 中的配置导入当前 shell，再执行 `python main.py`。
+### 4. 确认服务已启动
 
-## Browser chat
-
-`/` opens the dashboard at the conversation list. Selecting a historical
-conversation opens its context for preview; activate it explicitly to resume
-chat. Use the back control in the conversation header to return to the list.
-
-The conversation composer supports streamed replies, basic Markdown (bold, inline
-code, and fenced code), and manual context additions. Browser chat requires
-`CONTEXT_MANAGED=true` and uses the dashboard session plus CSRF protection, without
-exposing the gateway API secret. Requests reject a stale conversation selection.
-The route and supplier controls change the global gateway configuration; choosing
-a compatible supplier also selects the OpenAI-compatible route. Model IDs can be
-picked from the refreshed list or entered manually.
-
-Stopping reception closes the browser stream; the upstream request may still be
-processing. Refresh the context to verify saved messages before retrying. Existing
-conversations with client-only tool snapshots still require their original client
-for those tools. The browser does not execute frontend-specific tools.
-
-The public JSON health endpoint is now `/healthz`; update probes that previously
-used `/`.
-
-## Conversation ownership
-
-The gateway owns the active conversation. Chat request headers, body metadata,
-and frontend conversation IDs cannot create or switch it. Use the conversation
-management API explicitly:
-
-- `POST /api/conversations` creates a conversation without activating it.
-- `POST /api/conversations/{id}/activate` switches the active conversation.
-- Deleting the active conversation leaves the gateway with no active conversation.
-
-Managed context stores the complete message history. It is not summarized,
-trimmed by message count, or moved to another conversation automatically.
-
-## Gateway slash commands
-
-When the last user turn consists only of a registered command, the chat route
-handles it as gateway control traffic. The command is neither stored in context
-nor forwarded to the normal chat model. Both streaming and non-streaming
-OpenAI-compatible clients receive an ordinary assistant result message.
-
-- `/compact` generates and saves a new handoff-summary snapshot.
-- `/compact redo` regenerates from the same frozen message boundary. Optional
-  text after `redo` is passed as a regeneration preference.
-- `/message 12` freezes the last 12 visible user/assistant messages for the
-  next handoff. `/message(12)` is accepted as a compatibility spelling.
-- `/switch [name]` atomically writes the saved summary into the standing-memory
-  flow timeline, then creates and activates a conversation containing any
-  frozen messages. The summary is not injected again as a separate handoff.
-- `/switch 12 [name]` generates a fresh summary, selects 12 messages, and
-  switches in one request.
-- `/heartbeat on` and `/heartbeat off` change only the enabled flag and preserve
-  the configured interval, provider, and model.
-- `/diary` generates one diary proposal from the active
-  conversation and returns the full draft in chat. `/yes` approves that exact
-  proposal; `/no` rejects it. The proposal is bound to the source conversation
-  in metadata, survives restarts, and cannot approve unrelated pending items.
-- `/status` shows the active conversation, summary version, selection count,
-  pending diary review, and heartbeat state; `/help` prints the command list.
-
-`compact`, `message`, and `switch` require `CONTEXT_MANAGED=true`. Selection is
-limited to 200 messages per handoff. Unregistered slash text is sent to the
-model normally; prefix a registered command with a second slash (for example,
-`//compact`) to send it as ordinary text as well. Summary snapshots and message
-selections are persisted on the source conversation, so they survive gateway
-restarts. The flow timeline retains the newest 8 summaries by default. Its
-limit can be changed from 1 to 100 directly in the dashboard's flow-zone header
-without restarting the service; `FLOW_MEMORY_MAX_ITEMS` supplies only the
-initial default before a value is saved. The gateway moves summaries older than
-the saved limit unchanged into the diary archive in the same transaction and
-removes the flow rows. `FLOW_MEMORY_HARD_TOKENS` (default `12000`) remains an
-emergency guard for unusually large summaries, but normal rolling is based on
-item count. Automatic promotion never creates a Pending proposal or calls the
-summary model. When a promoted entry's title starts with a valid `YYYY-MM-DD`,
-that explicit prefix becomes its diary date; otherwise the date it entered the
-flow timeline remains the fallback. The original flow date and the
-promotion-time date source stay in metadata; later manual edits remain
-authoritative.
-
-## Memory writes
-
-Switching with `/switch` queues memory extraction from a frozen source-conversation
-snapshot in the same transaction as the switch. A background worker uses the
-Memory Extraction model (the existing `long_term_summary_*` configuration), the
-persona/memory prompt, and standing memory to extract new preferences, habits,
-plans, and important opinions. Every new fragment must include verbatim quotes
-and source message IDs; quotes are checked against the snapshot before saving.
-Handoff copies, hidden messages, reasoning, and tool payloads are excluded.
-Each switch job also reserves at most three unscored legacy fragments. The first
-extraction request scores these separately without rewriting them or inventing
-quotes. Retries reuse that reservation, and scores commit with job completion.
-Exhausted failed jobs release reservations for later switches.
-Long conversations are processed in batches of up to roughly 24,000 characters,
-with at most 12 fragments per batch. Empty results are valid. Failed jobs retry
-up to three times; interrupted jobs resume after their lease expires. Fragment
-writes and job completion commit together. Existing migrated fragments retain
-their diary provenance but have no invented message-level quotes.
-Manual
-standing-memory edits take effect immediately. The chat and heartbeat models can
-also propose standing-memory creates, edits, and deletes through `create_memory`,
-`edit_memory`, and `delete_memory`; model-authored changes remain Pending until
-the user approves or rejects them in the dashboard. Edit proposals show the old
-and proposed text with character-level marker highlighting. Diary
-drafts also require explicit review.
-Standing-memory tools accept content/IDs only, with no reason field.
-
-Fragment forgetting is deterministic and never invokes a model. An hourly sweep
-uses retention `2 ** (-age_days / (30 + 150 * importance))`; retention below
-`FRAGMENT_FORGET_THRESHOLD` (default `0.2`) creates a pending forgetting entry,
-pausing recall without deleting content. Unscored or undated legacy fragments
-are skipped; scoring starts their retention clock. The dashboard exposes Keep
-(reset the clock) and Confirm Forget (delete) actions. Important fragments decay
-more slowly. This lifecycle is separate from the five-component retrieval score.
-Standing memory is presented as two zones: the fixed zone (`core`, plus legacy
-`ring` records) is manually maintained, while the flow zone (`recent`) receives
-conversation summaries when switching sessions.
-For prompt caching, the core prompt and fixed zone share the first stable cache
-block, while the bounded flow timeline uses the second block. A session switch
-rebuilds only the flow block; ordinary turns reuse both blocks and retain the
-remaining message-cache breakpoints.
-Archived flow summaries and authored diaries live in the diary branch. Existing
-diary summaries are split once into independent fragments while the source diary
-remains intact; the obsolete diary summary field is then cleared. `search_memory`
-returns complete compact fragment text with no title, date metadata, or follow-up
-read step. When a date is useful it belongs at the beginning of the fragment text
-itself. `search_diary` returns a compact diary directory using keywords, and
-`read_diary` reads one diary body. All three are read-only.
-`search_conversation_history` remains available as an independent search over
-earlier raw conversations.
-The three standing-memory write tools never mutate active memory directly; they
-only create or update a Pending proposal.
-Automatic fragment-memory recall is relevance-gated and packed by estimated input
-tokens instead of a fixed item count. It stops at about 1,500 tokens by default
-without filling leftover space with lower-ranked results. Override the cap with
-`LONG_TERM_RECALL_MAX_TOKENS` for the initial default, or adjust it at runtime in
-the dashboard's history-search settings. The saved value accepts 256-8,000
-tokens and takes precedence over the environment default.
-
-Fragment retrieval first requires cosine similarity at least
-`LONG_TERM_RECALL_MIN_SEMANTIC_SCORE` (default `0.35`). Missing query/candidate
-vectors or no eligible matches produce zero fragments; keyword matches cannot
-bypass this gate. Eligible fragments are ranked by `semantic_similarity * 0.45
-+ recency_score * 0.20 + importance * 0.15 + entity_overlap * 0.10
-+ thread_affinity * 0.10`, with all components in `[0, 1]`.
-Recency uses extraction write time with a 30-day exponential half-life
-(`FRAGMENT_RECENCY_HALF_LIFE_DAYS`); migration dates give no recency bonus.
-Importance and entities are supplied by the extraction model, with entity names
-checked against the quoted evidence. Existing unscored fragments temporarily use
-importance `0.5`; missing entities give zero overlap. Entity overlap is the
-fraction of a fragment's stored entities mentioned in the query. Thread affinity
-is `1` within the same conversation handoff family, otherwise `0`. These weights
-apply to fragments; diary and conversation searches keep their own ranking.
-
-The memory dashboard separates fixed memory entries, extracted/migrated memory
-fragments, and diaries. Its complete prompt-splice preview lives at the bottom of
-Settings and lazily exposes each prompt section plus the fixed and flow memory
-blocks in actual assembly order.
-
-The dashboard stores separate provider/model selections for handoff summaries
-and memory extraction. Existing installations keep using the
-handoff selection for extraction until the settings form is saved once,
-after which the two selections are independent. The extraction
-environment fallback can also be configured separately with
-`LONG_TERM_SUMMARY_API_URL`, `LONG_TERM_SUMMARY_API_KEY`, and
-`LONG_TERM_SUMMARY_MODEL`; each falls back to its `MEMORY_ORGANIZER_*`
-counterpart when omitted. Moving flow memory into the diary archive still does
-not call either summary model automatically.
-
-Summary and diary jobs use low reasoning effort by default so thinking models
-leave enough output budget for visible results. Set
-`MEMORY_ORGANIZER_REASONING_EFFORT` to override that default.
-
-## Context limit
-
-Set `MODEL_CONTEXT_LIMIT` to the real context-window token limit of the routed
-model. `CONTEXT_TOKEN_SAFETY_MARGIN` defaults to `4096`. The gateway performs a
-conservative local estimate before saving and sending a new user turn. If the
-full history does not fit, it returns HTTP 413 with
-`error=context_limit_exceeded`; it does not trim, summarize, or switch sessions.
-
-`MODEL_CONTEXT_LIMIT=0` disables the local estimate and leaves the hard-limit
-decision to the upstream provider.
-
-## Long-running operation
-
-- Export a full JSON backup after meaningful memory changes and periodically
-  test a restore on a separate instance. Backup schema versions 2 through 8 are
-  accepted by both the dashboard preview and restore API.
-- The JSON backup contains memories, pending operations, conversations, and
-  messages. It intentionally does not contain deployment secrets, provider
-  profiles, or model settings; preserve those environment variables and
-  settings separately.
-- Keep `MEMORY_CLEANUP_INTERVAL=0` unless automatic deletion of low-importance
-  legacy fragments is explicitly desired. It is disabled by default.
-- Watch the flow-token indicator and diary "待关键词" count in the memory
-  dashboard. They expose maintenance pressure without triggering model calls.
-- Set `MODEL_CONTEXT_LIMIT` to the routed model's real context limit so an
-  oversized conversation fails predictably before an upstream request.
-- Monitor `GET /healthz`: it remains lightweight and reports `status=degraded` with
-  `database_status=unavailable` when the memory database cannot be queried,
-  without exposing the database error or credentials.
-
-## OpenRouter Anthropic endpoint
-
-For the OpenAI-compatible route, an OpenRouter provider may use either the base
-URL `https://openrouter.ai/api/v1` or the full Chat Completions endpoint. The
-gateway expands the base URL automatically and loads models from the same
-effective dashboard profile or environment fallback used for chat.
-
-The Anthropic route can use OpenRouter's native Messages API without converting
-the request to OpenAI Chat Completions:
-
-```env
-ANTHROPIC_API_URL=https://openrouter.ai/api/v1/messages
-DEFAULT_MODEL=claude-opus-4-6
+```bash
+until curl -fsS http://localhost:8000/healthz; do sleep 2; done
 ```
 
-On hosted deployments, `API_KEY` can instead be saved from Dashboard → Settings
-→ Anthropic route key. The Dashboard value is stored in the database and takes
-precedence over the environment fallback, so it survives service restarts until
-manually deleted. The plaintext key is never returned by the management API and
-the credential table is deliberately excluded from gateway JSON backups. Remove
-the deployment `API_KEY` variable if deleting the Dashboard value should leave
-the Anthropic route fully disabled.
+健康检查通过后，在浏览器打开 <http://localhost:8000>，使用刚才设置的 `DASHBOARD_PASSWORD` 登录。
 
-For this endpoint the gateway automatically uses bearer authentication,
-normalizes native Claude aliases such as `claude-opus-4-6` to OpenRouter's
-`anthropic/claude-opus-4.6` slug, and sends the conversation ID as `session_id`
-for provider-sticky cache routing. Requests are restricted to OpenRouter's
-Anthropic provider so they do not fall back to a different Claude host. Existing
-explicit `cache_control` blocks are preserved. Direct Anthropic requests retain
-their native headers and model IDs.
+### 配置
 
-## Chat route
+上面的 `.env` 只包含启动 Ash 所需的最小配置。
 
-`ROUTE_PROVIDER` remains the startup default for normal chat. The dashboard
-Settings page can persist `auto`, `openai`, or `anthropic`; the saved route takes
-effect on the next request without restarting the service. An explicit
-`provider`, `route_provider`, or `provider_hint` request field still takes
-precedence over the saved default. Heartbeats keep their independent route.
+Ash 还支持多模型供应商、摘要模型、Embedding 模型、Heartbeat，以及不同聊天平台的接入。其他配置和使用方式可参考仓库中的相关文档。
 
-## Authentication
+API Key、平台凭据和其他密钥不要提交到 Git 仓库，也不要包含在准备分享的备份中。
 
-Keep two independent passwords in the deployment environment:
+## 核心能力
 
-```env
-GATEWAY_SECRET=secret-used-by-napcat-and-other-api-clients
-DASHBOARD_PASSWORD=separate-password-used-only-for-dashboard-login
-```
+### 01 · 由网关持有的会话
 
-All `/v1/*` requests require `Authorization: Bearer <GATEWAY_SECRET>` and never
-accept secrets in the URL. Dashboard pages and management APIs use a signed,
-HttpOnly login cookie instead; the gateway secret is never sent to browser
-JavaScript. Dashboard sessions last seven days by default. Set
-`DASHBOARD_SESSION_TTL_HOURS` to change that duration. HTTPS deployments use a
-Secure cookie by default; set `DASHBOARD_COOKIE_SECURE=false` only for local HTTP
-development.
+Ash 统一管理当前活动会话、消息历史和上下文。浏览器或其他客户端不直接决定要切换到哪一段历史；切换、创建和删除由专门的会话管理流程完成。
 
-## Heartbeat cache
+支持完整历史保留、可选的滚动窗口、手动交接摘要和消息选取。达到配置的上下文上限时，优先明确报错，而不是悄悄丢弃历史。
 
-Heartbeats operate only on the explicitly active conversation. Each check gives
-the selected model a bounded autonomous tool loop with the same gateway MCP and
-memory tools exposed by normal chat. The model may use any of those tools until
-it returns without another tool call. A notification is sent only when the model
-chooses to call the notification tool.
+常用命令：
 
-`HEARTBEAT_PROVIDER` explicitly selects `openai` or `anthropic`. Anthropic checks
-reuse the persisted main-chat cache anchor. Tool rounds append after the stable
-prefix and may add a tool-result cache anchor without invalidating that prefix.
-OpenAI checks do not touch the Anthropic cache. `HEARTBEAT_MODEL` optionally overrides the
-model used by the selected route; otherwise Anthropic uses `DEFAULT_MODEL`, and
-OpenAI uses `DEFAULT_MODEL` when it is OpenAI-like or `gpt-4o-mini` otherwise.
+| 命令 | 用途 |
+| --- | --- |
+| `/compact` | 生成当前会话的交接摘要 |
+| `/compact redo` | 在同一消息边界上重新生成摘要 |
+| `/message 12` | 选取最近 12 条可见消息用于交接 |
+| `/switch [name]` | 保存交接信息并切换到新会话 |
+| `/switch 12 [name]` | 生成摘要、选取消息并完成切换 |
+| `/status` | 查看当前会话及交接状态 |
 
-Relevant settings:
+### 02 · 有来源的长期记忆
 
-- `HEARTBEAT_ENABLED` enables the worker.
-- `HEARTBEAT_INTERVAL` is the inactivity threshold in minutes.
-- `HEARTBEAT_CHECK_INTERVAL` is the worker polling interval in seconds.
-- `HEARTBEAT_CLAIM_TIMEOUT` is the stale distributed-claim timeout in seconds
-  and defaults to `1800`.
-- `HEARTBEAT_PROVIDER` selects `openai` or `anthropic` and defaults to `openai`.
-- `HEARTBEAT_MODEL` optionally overrides the route's inferred model.
-- `HEARTBEAT_MAX_TOKENS` reserves the OpenAI-compatible heartbeat output budget
-  and defaults to `4096`; reasoning tokens count against this budget on
-  OpenRouter.
-- `HEARTBEAT_REASONING_EFFORT` controls heartbeat reasoning independently and
-  defaults to `low`. OpenRouter Gemini 2.5/3 thinking models use this low default
-  even when general OpenAI-route reasoning is disabled.
+记忆并非单一的固定人设文本，而由几类内容共同组成：
 
-These environment variables are initial defaults. The dashboard Heartbeat page
-can persist the enabled state, interval, provider, and model in PostgreSQL;
-saved values take effect on the next worker poll without restarting the service.
+- **常驻记忆**：由人维护的稳定信息与偏好；模型提出的写入先进入 Pending。
+- **流动记忆**：保存会话交接后的阶段性摘要，并按配置数量滚动归档。
+- **日记与历史资料**：支持检索和阅读，保留其原始内容及来源。
+- **记忆片段**：后台按轮次以助手第一人称提取并分类，检索后将少量相关片段冻结在当前用户消息开头。
 
-Every wake is stored in the heartbeat activity log with the final judgment and
-tool events, and is visible in the dashboard. Heartbeats that used tools are
-materialized immediately as hidden assistant history, so later heartbeats and
-real turns can recognize notifications and other actions without altering the
-user's message. Any activity that loses a conversation race is materialized
-before the next real user turn instead. Tool execution is cancelled if the active
-conversation changes while the heartbeat is running. Checks continue at the
-configured interval without a cumulative push limit.
-Anthropic intervals above 55 minutes are clamped to 55 minutes so the
-next check occurs before the one-hour cache TTL.
+自动召回作为标注清楚的参考资料附在当前消息中，不冒充用户此刻的新指令。已生成的召回内容随该轮消息冻结，避免后续续轮反复改变同一段上下文。
 
-## MCP servers
+提取频率、模型设置与四个对外 MCP 工具见[记忆片段](docs/MEMORY_RETRIEVAL.md)。
 
-`MCP_SERVER_URL` remains available for unauthenticated MCP servers. For
-authenticated or multiple servers, use `MCP_SERVERS_JSON`:
+### 03 · 缓存与模型路由
 
-```env
-MCP_SERVERS_JSON=[{"url":"https://terminal.example.com/mcp","bearer_token":"replace-with-a-secret"},{"url":"https://search.example.com/mcp","bearer_token":"another-secret"}]
-```
+Ash 同时处理 Anthropic Messages 和 OpenAI 兼容接口，支持多个供应商配置与独立的模型设置。
 
-Each server may use a different bearer token. The gateway sends it as the
-`Authorization: Bearer ...` header on MCP initialization, tool discovery, and
-tool calls. Tokens are never included in tool definitions, API responses, or
-MCP logs. When `MCP_SERVERS_JSON` is set, it takes precedence over the legacy
-`MCP_SERVER_URL` list.
+对于支持 Prompt Cache 的线路，会尽量把稳定提示词、常驻记忆、流动记忆与消息历史放在可复用的边界中；会话交接只重建必要部分。具体缓存 TTL、命中率和计费规则由实际上游决定，不保证不同供应商表现一致。
 
-## Photon iMessage notifications
+模型、摘要、Embedding 等用途可以分别配置，以避免把所有操作绑在同一条昂贵线路上。
 
-The optional standalone [Photon Bridge](https://github.com/fengjia999/Photon)
-turns iMessage into a personal frontend and gives heartbeat checks a direct HTTP
-notification tool.
+### 04 · 工具与主动行为
 
-> **Advanced integration / 高级集成：** Photon is not an install-and-enable
-> feature. It must be deployed as a separate service and requires Photon Spectrum
-> project credentials, E.164 sender allowlists, gateway authentication, an
-> independent bridge secret, and correctly secured network endpoints. It is
-> intended for users who are comfortable deploying and debugging multiple
-> cooperating services.
+Ash 支持内置工具、MCP 服务连接、模型发起的记忆操作与会话搜索，以及部分客户端的工具调用续轮。
 
-After deploying the bridge, configure both values to expose
-`send_imessage_notification` to newly created conversations:
+可选的 Heartbeat 会在满足配置条件时检查当前活动会话，并通过允许的工具执行操作或发送通知。它不是无限制的后台自主代理；工具权限、调用条件和执行记录仍由网关管理。
 
-```env
-PHOTON_NOTIFY_URL=https://your-photon-bridge.example/notify
-PHOTON_NOTIFY_SECRET=replace-with-a-separate-strong-secret
-```
+不同供应商及前端对工具协议的兼容程度可能不同，尤其是前端工具续轮，不能仅凭模型支持 `tool_use` 就认定完整链路可用。
 
-Existing conversations keep their frozen tool snapshot. After enabling the
-integration, create or switch to a new conversation before expecting heartbeat
-checks to see the notification tool.
+### 05 · 为自己设计的界面
 
-Photon frontend tool continuations are persisted as complete tool call/result
-pairs. Successful native replies and Tapbacks are also materialized as assistant
-timeline entries, allowing later heartbeat checks to see exactly what the user
-already received even when the model correctly emits no duplicate final text.
+内置浏览器聊天界面以移动端体验为核心，包含会话、历史、收藏、笔记墙、模型配置等入口。
+
+- 桌面布局、壁纸、图标和部分草稿保存在浏览器本地。
+- 收藏保留消息快照，不受原消息后续编辑影响。
+- 笔记文字可以保存在服务端，排版位置留在当前浏览器。
+- 支持流式回复、Markdown 显示、历史检索和手动附加上下文。
+
+Ash 也提供外部聊天入口的集成能力，包括 iMessage、QQ、飞书 / Lark 和微信。各平台的实际可用性取决于账号权限、授权状态及对应的接入条件。
+
+## 数据、备份与边界
+
+- 核心会话、记忆、日记和服务端笔记保存在 PostgreSQL。
+- 本地桌面外观、部分收藏与排版数据使用浏览器存储；**服务端备份不能替代本机桌面导出**。
+- 完整服务端备份可选择是否包含聊天历史；恢复前应核对选项，以免覆盖现有数据。
+- API 密钥与平台凭据不应写进 README、提交记录或可共享的备份。
+- 公开的轻量健康检查端点为 `/healthz`。
+- 关闭浏览器中的流式接收，不一定意味着上游模型已停止生成。
+
+> Ash 目前是个人使用的软件。涉及真实平台账号、外部工具及网络访问的功能，应在自己的部署环境中单独验证。
+
+## 文档索引
+
+详细配置、迁移和维护说明不再堆在首页 README 中：
+
+| 文档 | 内容 |
+| --- | --- |
+| [DASHBOARD_PHONE.md](docs/DASHBOARD_PHONE.md) | 浏览器桌面与聊天界面 |
+| [integrations/photon/README.md](integrations/photon/README.md) | 外部聊天接入组件 |
+| [SECURITY.md](SECURITY.md) | 部署、凭据与公开发布安全说明 |
+| [LICENSE](LICENSE) | 原始项目许可与版权声明 |
+
+部分文档可能记录历史版本行为，实施前以当前代码和实际配置为准。
+
+## 开发历程与致谢
+
+Ash 的起点是七堂伽藍_ 与 Midsummer 的 [AI Memory Gateway](https://github.com/garan0613/ai-memory-gateway)。感谢原作者提供早期框架与开放许可。当前版本已围绕个人需求进行了多次大规模重构，并不代表原项目的现状或设计方向。
+
+项目的设计取舍、长期维护、集成与验收由个人主导。开发过程中曾与以下模型协作：
+
+**Claude Opus 4.6 · GPT-6 Astra · GPT-5.6 Sol**
+
+这些名称记录的是 AI 辅助开发历程，不表示模型或其提供方对项目拥有署名、认证或背书关系。
+
+原始项目采用 MIT License；相应版权与许可文本保留在仓库的 [LICENSE](LICENSE) 中。
+
+---
+
+*人和机幸幸福福*
+
+## Design Notes
+
+The memory archive page is visually inspired in part by StarFold146/Nyx.

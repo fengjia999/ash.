@@ -3,7 +3,7 @@ Prompt 热更新管理器（数据库版）
 
 - system_prompt.txt 是种子文件，首次启动写入数据库
 - 运行时全部从数据库读写，重部署不丢失
-- locked 段只有 manual 能改，editable 段可由主聊天模型通过工具修改
+- locked 段只有 manual 能改，editable 段可通过工具改
 """
 
 import json
@@ -11,14 +11,7 @@ import re
 import os
 from datetime import datetime
 
-_PROMPT_DIR = os.path.dirname(__file__)
-_PRIVATE_PROMPT_FILE = os.path.join(_PROMPT_DIR, "system_prompt.txt")
-_EXAMPLE_PROMPT_FILE = os.path.join(_PROMPT_DIR, "system_prompt.example.txt")
-PROMPT_FILE = (
-    _PRIVATE_PROMPT_FILE
-    if os.path.exists(_PRIVATE_PROMPT_FILE)
-    else _EXAMPLE_PROMPT_FILE
-)
+PROMPT_FILE = os.path.join(os.path.dirname(__file__), "system_prompt.txt")
 EDIT_LOG_FILE = os.path.join(os.path.dirname(__file__), "prompt_edit_log.jsonl")
 
 

@@ -1,0 +1,154 @@
+/* A small receipt printer and quiet paper conversations. No bitmap machinery. */
+@font-face { font-family: 'Ash Hand'; src: url('/static/fonts/caveat-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+:root {
+  --conversation-title-font: 'Ash Hand', 'Ash WenKai', 'Kaiti SC', KaiTi, STKaiti, cursive;
+  --paper: #f1f0ea; --paper-base: #fcfaf2; --paper-aged: #e8e4d7;
+  --paper-line: #d8d3c6; --ink: #565448; --ink-mid: #666355; --ink-light: #878373;
+  --mustard: #8b927a; --mustard-bg: #edeedc; --nine: #737f80; --nine-bg: #e6ece7;
+  --leather: #f3f0e5; --leather-mid: #ece8dd; --leather-light: #e8e9df;
+  --leather-text: #565448; --leather-muted: #878373; --danger: #ac635a;
+  --shadow: rgba(77,72,57,.10);
+}
+body { background: #f4f3ee; background-image: radial-gradient(ellipse at 50% 15%, #fcfbf6, #f0eee6); }
+button, input, textarea, select { font-family: inherit; }
+button:focus-visible, [role=button]:focus-visible { outline: 2px solid #929a80; outline-offset: 3px; }
+[hidden] { display: none !important; }
+
+/* The printer is the list header; the continuous receipt is initially tucked in. */
+body.context-list-only { overflow: auto; background: radial-gradient(ellipse at 50% 15%, #fcfbf6, #f0eee6); }
+body.context-list-only .sidebar {
+  display: block; width: min(700px, 100%); height: auto; min-height: 100dvh;
+  margin: 0 auto; padding: clamp(34px, 8vh, 88px) 24px 50px;
+  background: transparent; border: 0; box-shadow: none;
+}
+body.context-list-only .sidebar-header {
+  display: block; width: 100%; max-width: none; min-height: 0; height: auto;
+  padding: 27px 28px 30px; margin: 0; position: relative; z-index: 2;
+  border: 1px solid #d4d0c4; border-radius: 18px 18px 27px 27px;
+  background: linear-gradient(180deg, #efede5 0%, #faf9f3 32%, #e7e5dc 34%, #f1efe8 44%, #e0ded3 100%);
+  box-shadow: inset 0 2px 2px #fff9, inset 0 -4px 6px #aaa59233, 0 9px 18px #79736119;
+  overflow: visible;
+}
+body.context-list-only .sidebar-header::before {
+  content: ''; position: absolute; inset: auto 10% 11px; width: auto; height: 10px;
+  background: #68685e; border: 1px solid #9c9b8d; border-radius: 4px;
+  box-shadow: inset 0 3px 4px #25261e88, 0 1px 0 #fff8; transform: none; clip-path: none;
+}
+body.context-list-only .sidebar-header::after { content: none; }
+.printer-title { display: block; margin: 0 0 22px 3px; font: 500 27px/1 'Ash Hand', 'Segoe Print', cursive; color: #868171; }
+.printer-controls { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.printer-current { min-width: 0; flex: 1; padding: 10px 12px; border: 1px solid #d8d5c8; border-radius: 6px; background: #f8f6ed; box-shadow: inset 0 1px 3px #77715a12; color: #5f5c50; font: 500 20px/1.5 var(--conversation-title-font); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.printer-current:disabled { color: #8b8778; cursor: default; }
+body.context-list-only .printer-edit.conv-gear { position: static; flex: 0 0 32px; width: 32px; height: 36px; transform: none; background: transparent; color: #817c6b; border: 0; box-shadow: none; border-radius: 5px; display: grid; place-items: center; }
+.printer-edit:disabled { opacity: .4; cursor: default; }
+.printer-power { flex: 0 0 36px; width: 36px; height: 36px; border: 1px solid #b37b70; border-radius: 50%; background: linear-gradient(#d59b8c, #bb746a); color: #fff6ed; box-shadow: inset 0 1px 2px #ffe8d9, 0 2px 3px #73645630; display: grid; place-items: center; cursor: pointer; }
+.printer-power svg { width: 18px; height: 18px; }
+.printer-power[aria-expanded=true] { background: linear-gradient(#b47268, #c98b7e); box-shadow: inset 0 2px 3px #7e403638, 0 1px 0 #fff; }
+.printer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+#printerHint { color: #878273; font-size: 11px; line-height: 1.6; }
+body.context-list-only .new-btn { flex-shrink: 0; min-width: 0; padding: 5px 9px; color: #777363; background: #f8f5e9; border: 1px solid #d4cebb; border-radius: 4px; box-shadow: none; transform: none; clip-path: none; font: 12px/1.5 var(--font-serif); }
+body.context-list-only .new-btn:hover { background: #eee9d8; color: #565448; }
+body.context-list-only .conv-list {
+  position: relative; z-index: 1; flex: none; width: 78%; max-width: none; margin: -13px auto 0;
+  padding: 30px 22px 42px; overflow: visible; border: 1px solid #e2ded1; border-top: 0;
+  background-color: #fcfaf3;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
+  box-shadow: 4px 5px 7px #82796318; transform-origin: top; animation: receipt-feed .4s ease-out;
+}
+body.context-list-only .conv-list::after { content: ''; position: absolute; inset: auto -1px -7px; height: 8px; background: linear-gradient(135deg, #fcfaf3 5px, transparent 0) 0 0/12px 8px, linear-gradient(225deg, #fcfaf3 5px, transparent 0) 0 0/12px 8px; }
+body.context-list-only .conv-month { display: flex; align-items: center; gap: 10px; width: 100%; margin: 25px 0 8px; padding: 0; min-width: 0; clip-path: none; background: none; border: 0; color: #989180; font: 10px/1.5 var(--font-mono); letter-spacing: .08em; transform: none; box-shadow: none; }
+body.context-list-only .conv-month:first-child { margin-top: 0; }
+body.context-list-only .conv-month::after { content: ''; display: block; flex: 1; min-width: 12px; height: 2px; background: repeating-linear-gradient(90deg, #aaa28e 0 7px, transparent 7px 12px); opacity: 1; }
+body.context-list-only .conv-item,
+body.context-list-only .conv-item.active,
+body.context-list-only .conv-item.is-active {
+  position: relative; margin: 0; padding: 23px 27px 23px 0; min-height: 74px;
+  border: 0; border-bottom: 1px dashed #d7d2c4; border-radius: 0;
+  background: transparent; color: #656052; box-shadow: none; transform: none; clip-path: none;
+}
+body.context-list-only .conv-item::before,
+body.context-list-only .conv-item.active::before,
+body.context-list-only .conv-item.is-active::before,
+body.context-list-only .conv-item::after { content: none; }
+body.context-list-only .conv-name { display: block; margin: 0; font: 500 24px/1.55 var(--conversation-title-font); letter-spacing: .01em; overflow-wrap: anywhere; }
+body.context-list-only .conv-item .conv-meta {
+  display: none; position: absolute; z-index: 4; top: calc(100% - 8px); left: -5px; right: -5px; margin: 0; padding: 9px 11px;
+  color: #777160; background: #f1eee1; border: 1px solid #e2dccb; border-radius: 3px;
+  font: 11px/1.7 var(--font-serif); box-shadow: 0 2px 4px #7f755b10;
+}
+body.context-list-only .conv-item:hover .conv-meta,
+body.context-list-only .conv-item:focus-within .conv-meta,
+body.context-list-only .conv-item.previewing .conv-meta { display: block; }
+body.context-list-only .conv-item.active .conv-meta,
+body.context-list-only .conv-item.is-active .conv-meta { color: #777160; }
+body.context-list-only .conv-item:hover,
+body.context-list-only .conv-item:focus-within,
+body.context-list-only .conv-item.previewing { z-index: 3; background: #eae6d329; transform: none; box-shadow: none; border-color: #d7d2c4; }
+body.context-list-only .conv-check { display: none; }
+body.context-list-only .conv-check.checked { display: block; top: 31px; right: 4px; width: 6px; height: 6px; border: 0; background: #9aa68a; border-radius: 50%; }
+body.context-list-only .conv-check.checked::after { content: none; }
+body.context-list-only .conv-item .conv-gear { right: 0; top: auto; bottom: 10px; width: 25px; height: 25px; border: 0; color: #9a9280; background: transparent; box-shadow: none; transform: none; }
+body.context-list-only .conv-item.active .conv-gear,
+body.context-list-only .conv-item.is-active .conv-gear { color: #9a9280; }
+.conv-menu, .modal { border: 1px solid #d5cfbe; border-radius: 8px; background: #fcfaf2; box-shadow: 0 10px 36px #655d4330; }
+.conv-menu-item { font-weight: 400; border-radius: 4px; }
+.conv-menu-item:hover { background: #eeeadc; color: #625d50; }
+.modal h3 { margin-left: 0; padding: 0; background: none; color: #625d50; font-weight: 500; clip-path: none; }
+.modal input, .modal textarea, .modal select, .summary-text { border: 1px solid #d5cfbe; border-radius: 4px; background: #fffdf7; color: #565448; }
+.btn, .btn-primary, .btn-mustard, .btn-secondary { border: 1px solid #d5cfbe; border-radius: 4px; background: #ede8d6; color: #625d50; font-weight: 400; box-shadow: none; }
+.btn-secondary { background: #fcfaf3; }
+
+/* Conversation details: separate sheets on a pale desk. */
+body.context-detail-only .app { height: 100dvh; background: #f2f0e8; background-image: linear-gradient(90deg, #e8e3d322 1px, transparent 1px); background-size: 32px 100%; }
+body.context-detail-only .topbar { min-height: 72px; padding: 10px 16px; height: auto; background: #faf8ef; border-bottom: 1px solid #ddd7c6; overflow: visible; gap: 10px; flex-wrap: wrap; }
+body.context-detail-only .topbar::after { content: none; }
+body.context-detail-only .topbar-left { gap: 8px; min-width: 0; flex: 1; }
+body.context-detail-only .menu-btn { width: 32px; height: 32px; flex-shrink: 0; background: #eee9d8; color: #7c7563; border: 1px solid #d7cfbc; border-radius: 5px; clip-path: none; font-weight: 400; font-size: 20px; }
+body.context-detail-only .menu-btn:hover { background: #e2dcc9; }
+body.context-detail-only .conv-heading { min-width: 0; margin: 0; padding: 0; background: transparent; clip-path: none; filter: none; transform: none; }
+body.context-detail-only .conv-heading::before { content: 'A conversation to keep'; font: 500 17px/1.2 'Ash Hand', cursive; letter-spacing: 0; color: #96907e; }
+body.context-detail-only .conv-title { font-family: var(--conversation-title-font); font-size: 19px; color: #625c4e; font-weight: 500; letter-spacing: 0; }
+body.context-detail-only .conversation-status-dates { color: #8b8372; }
+body.context-detail-only .quiet-action, body.context-detail-only .role-switch { border: 1px solid #ded7c6; border-radius: 4px; background: #fcfaf4; color: #7b7361; }
+body.context-detail-only .quiet-action:hover, body.context-detail-only .quiet-action.active { background: #eee9d8; color: #696252; border-color: #d7cfbc; }
+body.context-detail-only .role-pill { border-radius: 3px; font-weight: 400; }
+body.context-detail-only .role-pill.active.mustard, body.context-detail-only .role-pill.active.nine { background: #e3e7d8; color: #646d54; }
+body.context-detail-only .chat-toolbar { min-height: 48px; padding: 8px 16px; border: 0; border-bottom: 1px solid #ded7c6; background: #f6f3e9; }
+body.context-detail-only .chat-toolbar label { font-weight: 400; letter-spacing: 0; }
+body.context-detail-only .chat-toolbar input, body.context-detail-only .chat-toolbar select { border: 1px solid #d9d2bf; border-radius: 4px; background: #fdfbf5; font-weight: 400; }
+body.context-detail-only .msg-area { padding: 27px clamp(16px, 4vw, 54px) 32px; gap: 26px; }
+body.context-detail-only .msg.user, body.context-detail-only .msg.assistant { max-width: min(85%, 800px); border: 1px solid #e0d9c7; border-radius: 2px; color: #595649; padding: 18px 20px; box-shadow: 2px 4px 5px #80725312; transform: none; line-height: 1.85; }
+body.context-detail-only .msg.user { background: #f6f0dc; margin-right: 0; }
+body.context-detail-only .msg.assistant { background: #fffdf6; margin-left: 0; }
+body.context-detail-only .msg.user::before, body.context-detail-only .msg.assistant::before { background: #e4e6d8; color: #7e846c; font-weight: 400; border-radius: 2px; transform: none; }
+body.context-detail-only .msg-header { border-bottom: 1px solid #ded8c5; font-weight: 400; letter-spacing: 0; }
+body.context-detail-only .msg.user .msg-header, body.context-detail-only .msg.assistant .msg-header { color: #96907c; }
+body.context-detail-only .msg-act-btn { border: 1px solid #dbd3be; border-radius: 4px; background: #faf7ec; color: #8a816d; box-shadow: none; }
+body.context-detail-only .handoff-summary { border: 1px solid #dcd5c2; border-radius: 4px; background: #f7f4e7; box-shadow: none; }
+body.context-detail-only .handoff-summary summary { background: #ebe9dc; color: #7a7564; font-weight: 400; }
+body.context-detail-only .composer { padding: 12px clamp(12px, 3vw, 38px) 15px; border: 0; border-top: 1px solid #dcd5c2; background: #f8f5e9; }
+body.context-detail-only .composer-hint { color: #96907d; }
+body.context-detail-only .composer-role-label { background: #e5e8dc; color: #7d876d; font-weight: 400; border-radius: 3px; }
+body.context-detail-only textarea.input-area { border: 1px solid #ded7c4; border-radius: 3px; background: #fffdf6; color: #595649; box-shadow: inset 0 1px 3px #8072530b; }
+body.context-detail-only textarea.input-area:focus { border-color: #a6ac94; box-shadow: 0 0 0 2px #a6ac9419; }
+body.context-detail-only .btn, body.context-detail-only .btn-secondary, body.context-detail-only .chat-toolbar .btn-secondary, body.context-detail-only .btn-primary, body.context-detail-only .btn-mustard { border: 1px solid #d5cfbe; border-radius: 4px; background: #ebe8d6; color: #686351; font-weight: 400; }
+@keyframes receipt-feed { from { opacity: 0; transform: translateY(-24px) scaleY(.94); } to { opacity: 1; transform: none; } }
+@media(max-width: 700px) {
+  body.context-list-only .sidebar { padding: 34px 12px 40px; }
+  body.context-list-only .sidebar-header { padding: 24px 14px 30px; min-height: 0; }
+  .printer-title { font-size: 24px; }
+  .printer-controls { gap: 5px; }
+  .printer-current { font-size: 16px; padding: 9px 8px; }
+  .printer-power { flex-basis: 32px; width: 32px; height: 32px; }
+  body.context-list-only .printer-edit.conv-gear { flex-basis: 27px; width: 27px; }
+  .printer-footer { gap: 6px; }
+  #printerHint { font-size: 10px; }
+  body.context-list-only .conv-list { width: 84%; padding: 28px 13px 34px; }
+  body.context-list-only .conv-name { font-size: 21px; }
+  body.context-detail-only .topbar { min-height: 0; padding: 8px 10px !important; flex-direction: column; align-items: stretch; }
+  body.context-detail-only .conv-heading { padding: 0; }
+  body.context-detail-only .topbar-actions { margin: 0; align-self: flex-end; max-width: 100%; flex-wrap: wrap; }
+  body.context-detail-only .chat-toolbar { max-height: 115px; padding: 7px 10px; }
+  body.context-detail-only .msg.user, body.context-detail-only .msg.assistant { max-width: 94%; padding: 15px 13px; }
+}
+@media(prefers-reduced-motion: reduce) { body.context-list-only .conv-list { animation: none; } }

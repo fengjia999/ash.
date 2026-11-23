@@ -1,0 +1,131 @@
+<section id="section-bots" class="section phone-preferences bot-connections" aria-label="Bot 连接">
+    <div class="bot-connection-intro"><span class="bot-smile" data-phone-icon="smile" aria-hidden="true"></span><div><h2>狡兔三窟</h2></div></div>
+    <div class="bot-list-heading"><h3>我的连接</h3><button type="button" class="bot-add-button" data-phone-app="bot-add">＋ 添加连接</button></div>
+    <div id="bot-connections-list" class="bot-connection-list" aria-live="polite"></div>
+    <p id="bot-list-message" class="bot-connection-message" role="status"></p>
+    <button type="button" id="bot-list-retry" class="bot-add-button" hidden>重新加载</button>
+</section>
+
+<section id="section-bot-add" class="section phone-preferences bot-connections" aria-label="添加连接">
+    <div class="bot-page-title"><h2>选择平台</h2></div>
+    <div id="bot-provider-list" class="bot-provider-list"></div>
+    <p id="bot-provider-message" class="bot-connection-message" role="status"></p>
+    <button type="button" id="bot-provider-retry" class="bot-add-button" hidden>重新加载</button>
+</section>
+
+<section id="section-bot-imessage" class="section phone-preferences bot-connections" aria-label="iMessage 连接">
+    <form id="bot-connection-form" autocomplete="off">
+        <div class="bot-fields">
+            <div class="bot-setting-row"><span>连接状态</span><span id="bot-status" class="bot-status" role="status">未检查</span></div>
+            <label class="bot-toggle"><span>启用连接</span><span class="bot-switch"><input type="checkbox" id="bot-enabled" role="switch"><span class="bot-switch-track" aria-hidden="true"></span></span></label>
+        </div>
+        <h3 class="bot-group-title">Photon 账户</h3>
+        <div class="bot-fields">
+            <label class="bot-inline-field"><span>项目 ID</span><input type="text" id="bot-project_id" maxlength="300" placeholder="必填" spellcheck="false"></label>
+            <label class="bot-inline-field"><span>项目密钥</span><input type="password" id="bot-project_secret" autocomplete="new-password"></label>
+        </div>
+        <h3 class="bot-group-title">消息对象</h3>
+        <div class="bot-fields">
+            <label class="bot-inline-field"><span>通知对象</span><input type="text" id="bot-home_user" placeholder="电话号码或邮箱" maxlength="200"></label>
+            <label class="bot-stacked-field"><span>允许聊天的账号</span><textarea id="bot-allowed_users" rows="2" placeholder="留空使用通知对象"></textarea></label>
+        </div>
+        <h3 class="bot-group-title">回复方式</h3>
+        <div class="bot-fields">
+            <label class="bot-toggle"><span>附带当前时间</span><span class="bot-switch"><input type="checkbox" id="bot-time_enabled" role="switch" checked><span class="bot-switch-track" aria-hidden="true"></span></span></label>
+            <label class="bot-inline-field bot-wait-field"><span>等待你说完</span><span class="bot-number-control"><input type="number" id="bot-debounce_seconds" aria-label="等待你说完（秒）" min="0" max="300" step="1" value="30" required><span aria-hidden="true">秒</span></span></label>
+        </div>
+        <p class="bot-group-note">新消息重新计时，0 秒立即回复。</p>
+        <div class="bot-connection-actions"><button type="submit" id="bot-save" class="bot-primary-action">保存连接</button></div>
+        <div class="bot-secondary-actions"><button type="button" id="bot-check">检查连接<span aria-hidden="true">›</span></button><button type="button" id="bot-reconnect">重新连接<span aria-hidden="true">›</span></button></div>
+    </form>
+    <p id="bot-message" class="bot-connection-message" role="status" aria-live="polite"></p>
+</section>
+
+<section id="section-bot-qq" class="section phone-preferences bot-connections" aria-label="QQ 连接">
+    <div id="qq-summary" hidden>
+        <div class="bot-fields">
+            <div class="bot-setting-row qq-account"><span>AppID</span><strong id="qq-app-id"></strong></div>
+            <div class="bot-setting-row"><span>连接状态</span><span id="qq-status" class="bot-status" role="status">未检查</span></div>
+            <label class="bot-toggle"><span>启用连接</span><span class="bot-switch"><input type="checkbox" id="qq-enabled" role="switch"><span class="bot-switch-track" aria-hidden="true"></span></span></label>
+        </div>
+        <h3 class="bot-group-title">回复方式</h3>
+        <div class="bot-fields">
+            <label class="bot-toggle"><span>附带当前时间</span><span class="bot-switch"><input type="checkbox" id="qq-time-enabled" role="switch" checked><span class="bot-switch-track" aria-hidden="true"></span></span></label>
+            <label class="bot-inline-field bot-wait-field"><span>等待你说完</span><span class="bot-number-control"><input type="number" id="qq-debounce-seconds" aria-label="等待你说完（秒）" min="0" max="300" step="1" value="30" required><span aria-hidden="true">秒</span></span></label>
+        </div>
+        <p class="bot-group-note">新消息重新计时，0 秒立即回复。</p>
+        <div class="bot-connection-actions"><button type="button" id="qq-save-settings" class="bot-primary-action">保存设置</button></div>
+        <div class="bot-secondary-actions"><button type="button" id="qq-reconnect">重新连接<span aria-hidden="true">›</span></button><button type="button" id="qq-reauthorize">重新授权<span aria-hidden="true">›</span></button></div>
+    </div>
+    <div id="qq-setup" hidden>
+        <button type="button" id="qq-setup-back" class="qq-step-back" hidden>‹ 返回</button>
+        <div id="qq-choices">
+            <div class="bot-platform-intro"><span class="bot-platform-icon" data-platform="qq" aria-hidden="true">QQ</span><h2 class="qq-step-title">添加 QQ Bot</h2></div>
+            <div class="bot-connection-list">
+                <button type="button" id="qq-scan" class="qq-method"><span class="qq-method-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M3 12h18"/><path d="M8 8h3v3H8zm5 5h3v3h-3z"/></svg></span><span><strong>扫码添加</strong><small>用手机 QQ 授权</small></span><span class="bot-connection-chevron" aria-hidden="true">›</span></button>
+                <button type="button" id="qq-existing" class="qq-method"><span class="qq-method-icon" aria-hidden="true">＋</span><span><strong>连接已有 Bot</strong><small>填写 AppID 后扫码授权</small></span><span class="bot-connection-chevron" aria-hidden="true">›</span></button>
+            </div>
+        </div>
+        <form id="qq-existing-form" hidden autocomplete="off">
+            <div class="bot-page-title"><h2 class="qq-step-title">连接已有 Bot</h2></div>
+            <div class="bot-fields"><label class="bot-inline-field"><span>AppID</span><input type="text" id="qq-existing-id" inputmode="numeric" pattern="[0-9]{5,20}" maxlength="20" required placeholder="必填" spellcheck="false"></label></div>
+            <div class="bot-connection-actions"><button type="submit" id="qq-existing-continue" class="bot-primary-action">继续授权</button></div>
+        </form>
+        <div id="qq-qr-panel" hidden>
+            <div class="bot-page-title"><h2 class="qq-step-title">用手机 QQ 扫码</h2></div>
+            <p id="qq-expected-id" class="qq-step-meta" hidden></p>
+            <div class="qq-qr-frame"><img id="qq-qr-image" alt="QQ 授权二维码" hidden><span id="qq-qr-state" role="status">正在生成二维码…</span></div>
+            <div class="bot-connection-actions"><button type="button" id="qq-refresh-qr">重新生成二维码</button></div>
+        </div>
+    </div>
+    <p id="qq-message" class="bot-connection-message" role="status" aria-live="polite"></p>
+    <button type="button" id="qq-retry" class="bot-add-button" hidden>重新加载</button>
+</section>
+
+{% for provider, label in [('feishu', '飞书'), ('weixin', '微信')] %}
+<section id="section-bot-{{ provider }}" class="section phone-preferences bot-connections social-bot" data-provider="{{ provider }}" aria-label="{{ label }}连接">
+    <form data-social="form" autocomplete="off">
+        {% if provider == 'feishu' %}
+        <div class="bot-fields">
+            <label class="bot-inline-field"><span>平台</span><select name="feishu_domain"><option value="feishu">飞书（国内）</option><option value="lark">Lark（国际版）</option></select></label>
+            <label class="bot-inline-field"><span>App ID</span><input name="app_id" required pattern="cli_[0-9a-fA-F]{16}" placeholder="cli_…" spellcheck="false"></label>
+            <label class="bot-inline-field"><span>App Secret</span><input name="app_secret" type="password" autocomplete="new-password" placeholder="必填"></label>
+        </div>
+        {% else %}
+        <div class="bot-fields"><div class="bot-setting-row"><span>微信账号</span><span data-social="account"></span></div></div>
+        {% endif %}
+        <div class="bot-fields">
+            <div class="bot-setting-row"><span>连接状态</span><span data-social="status" class="bot-status" role="status">未连接</span></div>
+            <div class="bot-setting-row"><span>聊天账号</span><span data-social="owner">未绑定</span></div>
+            <label class="bot-toggle"><span>启用连接</span><span class="bot-switch"><input name="enabled" type="checkbox" role="switch"><span class="bot-switch-track" aria-hidden="true"></span></span></label>
+        </div>
+        <h3 class="bot-group-title">回复方式</h3>
+        <div class="bot-fields">
+            <label class="bot-toggle"><span>附带当前时间</span><span class="bot-switch"><input name="time_enabled" type="checkbox" role="switch" checked><span class="bot-switch-track" aria-hidden="true"></span></span></label>
+            <label class="bot-inline-field"><span>等待你说完</span><span class="bot-number-control"><input name="debounce_seconds" type="number" min="0" max="300" step="1" value="30" required aria-label="等待秒数"><span>秒</span></span></label>
+        </div>
+        <p class="bot-group-note">新消息重新计时，0 秒立即回复。</p>
+        <div class="bot-connection-actions"><button type="submit" class="bot-primary-action">保存连接</button></div>
+    </form>
+    <div class="bot-secondary-actions">
+        <button type="button" data-social="setup">{{ '绑定聊天账号' if provider == 'feishu' else '扫码连接微信' }}<span aria-hidden="true">›</span></button>
+        <button type="button" data-social="reconnect" hidden>重新连接<span aria-hidden="true">›</span></button>
+    </div>
+    <div data-social="setup-panel" hidden>
+        <div class="qq-qr-frame">
+            <img data-social="qr" alt="微信授权二维码" hidden>
+            <div data-social="pairing" hidden><p class="bot-group-note">私聊机器人，发送此绑定码：</p><code data-social="code"></code></div>
+            <span data-social="setup-status" role="status">正在准备…</span>
+        </div>
+        <form data-social="verify-form" hidden><div class="bot-fields"><label class="bot-inline-field"><span>手机验证码</span><input name="verify_code" inputmode="numeric" pattern="[0-9]{4,12}" required autocomplete="one-time-code"></label></div><div class="bot-connection-actions"><button type="submit">提交验证码</button></div></form>
+        <div class="bot-connection-actions"><button type="button" data-social="cancel">取消</button></div>
+    </div>
+    {% if provider == 'feishu' %}
+    <details class="bot-setup-help"><summary>接入说明</summary><p>先在对应开放平台创建应用、开启机器人。在此选择飞书或 Lark，填写凭据，启用并保存。连接成功后，回开放平台验证并保存「长连接」，添加 im.message.receive_v1；开通 im:message.p2p_msg:readonly 和 im:message:send_as_bot 权限。发布应用后，在此绑定聊天账号。</p></details>
+    {% else %}
+    <p class="bot-group-note" data-social="wx-note">使用微信扫码，在手机上确认授权。</p>
+    {% endif %}
+    <p data-social="message" class="bot-connection-message" role="status" aria-live="polite"></p>
+    <button type="button" data-social="retry" class="bot-add-button" hidden>重新加载</button>
+</section>
+{% endfor %}

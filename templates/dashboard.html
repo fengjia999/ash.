@@ -1,161 +1,57 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="phone-root">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#e9e2d7">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#141311">
     <title>Memory Gateway</title>
     <link rel="icon" href="/static/ash-icon.png" type="image/png">
     <link rel="shortcut icon" href="/static/ash-icon.png">
     <link rel="apple-touch-icon" href="/static/ash-icon.png">
     <link rel="manifest" href="/static/site.webmanifest">
+    <script src="/static/js/theme.js?v={{ static_version }}"></script>
+    <link rel="stylesheet" href="/static/css/phone-base.css?v={{ static_version }}">
+    <link rel="stylesheet" href="/static/css/bot-connections.css?v={{ static_version }}">
     <link rel="stylesheet" href="/static/css/dashboard.css?v={{ static_version }}">
+    <link rel="stylesheet" href="/static/css/memory-letter.css?v={{ static_version }}" data-sections="standing diary" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/memory-notebook.css?v={{ static_version }}" data-sections="standing diary" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/fonts/wenkai.css?v={{ static_version }}" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/usage-paper.css?v={{ static_version }}" data-sections="quotes" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/presets-paper.css?v={{ static_version }}" data-sections="presets prompts" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/heartbeat-coffee.css?v={{ static_version }}" data-sections="heartbeats" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/settings-desk.css?v={{ static_version }}" data-sections="settings recall suppliers supplier-route supplier-openai supplier-anthropic" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/transfer-paper.css?v={{ static_version }}" data-sections="import export" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/night.css?v={{ static_version }}">
+    <link rel="stylesheet" href="/static/css/history-recall.css?v={{ static_version }}" data-sections="recall" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/merle-phone.css?v={{ static_version }}">
+    <link rel="stylesheet" href="/static/css/conversation-prompts.css?v={{ static_version }}">
+    <link rel="stylesheet" href="/static/css/phone-shell.css?v={{ static_version }}">
+    <link rel="stylesheet" href="/static/css/memory-archive.css?v={{ static_version }}" data-sections="standing" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/static/css/phone-noteboard.css?v={{ static_version }}">
+    <link rel="stylesheet" href="/static/css/ash-opening.css?v={{ static_version }}">
+    <script src="/static/js/phone-storage.js?v={{ static_version }}"></script>
+    <script src="/static/js/phone-viewport.js?v={{ static_version }}"></script>
+    <script>
+    // A direct link keeps its own page styles blocking, while other pages load later.
+    document.querySelectorAll('link[data-sections]').forEach(link => {
+        if (link.dataset.sections.split(' ').includes(window.location.hash.slice(1))) link.media = 'all';
+    });
+    </script>
 </head>
-<body>
-<button class="mobile-history-toggle" aria-label="打开控制侧栏" aria-expanded="false" onclick="toggleHistorySidebar()">
-    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <path d="M4 7h16M4 12h16M4 17h16"/>
-    </svg>
-</button>
-<button type="button" class="mobile-sidebar-backdrop" aria-label="收起控制侧栏" aria-hidden="true" tabindex="-1" onclick="toggleHistorySidebar()"></button>
+<body class="phone-dashboard">
+<dialog id="ash-opening" open tabindex="-1" autofocus aria-label="擦亮 Ash，进入桌面">
+    <canvas aria-hidden="true"></canvas>
+    <div class="ash-opening-controls"><span>擦亮 Ash</span><form method="dialog"><button type="submit">跳过</button></form></div>
+</dialog>
 <div class="dashboard">
 
-    <!-- ══ Sidebar ══ -->
-    <aside class="sidebar">
-        <div class="sidebar-header">
-            <div class="logo">
-                <svg class="logo-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                </svg>
-                <div>
-                    <div class="logo-text">Memory Gateway</div>
-                    <div class="logo-sub">ASH · MEMORY OS</div>
-                </div>
-            </div>
-        </div>
-
-        <nav class="sidebar-nav">
-            <a href="#" class="nav-item" data-section="standing">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                    <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/>
-                </svg>
-                <span class="nav-label">记忆</span>
-            </a>
-
-            <a href="#" class="nav-item active" data-section="conversations" aria-current="page">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>
-                </svg>
-                <span class="nav-label">会话</span>
-            </a>
-
-            <a href="#" class="nav-item" data-section="manage" hidden>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="8" y1="6" x2="21" y2="6"/>
-                    <line x1="8" y1="12" x2="21" y2="12"/>
-                    <line x1="8" y1="18" x2="21" y2="18"/>
-                    <line x1="3" y1="6" x2="3.01" y2="6"/>
-                    <line x1="3" y1="12" x2="3.01" y2="12"/>
-                    <line x1="3" y1="18" x2="3.01" y2="18"/>
-                </svg>
-                <span class="nav-label">碎片录</span>
-            </a>
-
-            <a href="#" class="nav-item" data-section="quotes">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 3v18h18"/>
-                    <path d="M7 15l3-3 3 2 5-7"/>
-                </svg>
-                <span class="nav-label">用量</span>
-            </a>
-
-            <a href="#" class="nav-item" data-section="heartbeats">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12h4l2-6 4 12 2-6h6"/>
-                </svg>
-                <span class="nav-label">心跳</span>
-            </a>
-
-            <a href="#" class="nav-item" data-section="settings">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>
-                </svg>
-                <span class="nav-label">设置</span>
-            </a>
-
-            <a href="#" class="nav-item" data-section="prompts">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 4h16v16H4z"/>
-                    <path d="M8 9h8M8 13h8M8 17h5"/>
-                </svg>
-                <span class="nav-label">提示词</span>
-            </a>
-
-            <a href="#" class="nav-item" data-section="import">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                <span class="nav-label">导入</span>
-            </a>
-
-            <a href="#" class="nav-item" data-section="export">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                <span class="nav-label">备份</span>
-            </a>
-        </nav>
-
-        <div class="sidebar-footer">
-            <a href="#" class="nav-item" onclick="logoutDashboard(event)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h6v18h-6"/>
-                </svg>
-                <span class="nav-label">退出登录</span>
-            </a>
-            {% if public_repository_url %}
-            <a href="{{ public_repository_url }}" target="_blank" rel="noopener noreferrer" class="nav-item">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
-                </svg>
-                <span class="nav-label">源码</span>
-            </a>
-            {% endif %}
-        </div>
-    </aside>
-
+    {% include 'phone-shell.html' %}
     <!-- ══ Main ══ -->
     <main class="main-content">
 
         <section id="section-conversations" class="section active conversation-hub-section">
-            <div class="conversation-library" aria-label="会话列表">
-                <div class="conversation-frame-shell">
-                    <iframe id="conversation-list-frame" class="conversation-list-frame" title="会话列表"></iframe>
-                    <div class="conversation-frame-status" id="conversation-list-status" role="status">
-                        <span id="conversation-list-status-text">正在加载会话…</span>
-                        <button type="button" id="conversation-list-retry" onclick="retryConversationFrame('list')" hidden>重试</button>
-                    </div>
-                </div>
-            </div>
-
             <div class="conversation-detail-layer" id="conversation-detail-layer" aria-hidden="true">
                 <div class="conversation-detail-dialog">
                     <iframe id="conversation-detail-frame" class="conversation-detail-frame" title="会话"></iframe>
@@ -167,35 +63,19 @@
             </div>
         </section>
 
-        <!-- Legacy 记忆碎片：只读陈列，有数据时才显示入口 -->
-        <section id="section-manage" class="section" hidden>
-            <div class="section-header">
-                <h1>碎片录</h1>
-                <span class="section-count" id="stats"></span>
-            </div>
-            <div class="fragment-ledger" id="memorySections"></div>
-        </section>
-
         <!-- 导入 -->
-        <section id="section-import" class="section">
-            <div class="section-header">
-                <h1>导入</h1>
-            </div>
+        <section id="section-import" class="section transfer-section">
 
             <div class="card import-card">
-                <div class="tabs import-tabs">
-                    <button type="button" class="tab active" data-tab="json">完整恢复</button>
-                    <button type="button" class="tab" data-tab="text">旧碎片</button>
-                </div>
 
                 <div id="tab-json" class="tab-panel active">
                     <div class="import-panel-heading">
-                        <h2>恢复备份</h2>
+                        <h2>完整恢复</h2>
                         <span>提示词 · 记忆 · 后台任务 · 会话</span>
                     </div>
 
                     <label class="import-dropzone">
-                        <input type="file" id="jsonFile" accept=".json">
+                        <input type="file" id="jsonFile" accept=".json,application/json" aria-label="选择 JSON 备份文件">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M12 16V4M7 9l5-5 5 5"/>
@@ -203,68 +83,32 @@
                         </svg>
                         <span>
                             <strong>选择备份文件</strong>
-                            <small id="jsonFileName">JSON</small>
+                            <small id="jsonFileName">点击选择 · JSON 文件</small>
                         </span>
                     </label>
 
-                    <div class="divider"><span>或粘贴 JSON</span></div>
+                    <div class="divider"><label for="jsonInput">或粘贴 JSON</label></div>
 
                     <div class="form-group import-textarea-wrap">
                         <textarea id="jsonInput" class="textarea" rows="6" placeholder="粘贴完整备份…"></textarea>
                     </div>
 
+                    <p class="transfer-restore-note">恢复会覆盖当前提示词、记忆、后台任务和会话。默认跳过备份中的历史消息，并清除当前历史消息。建议先备份，再继续。</p>
                     <div class="import-actions">
-                        <button type="button" class="btn btn-primary" onclick="previewJson()">查看并恢复</button>
+                        <button type="button" class="btn btn-primary" onclick="previewJson()">预览备份 <span aria-hidden="true">→</span></button>
                     </div>
-                    <div id="jsonPreview" class="preview-box"></div>
+                    <div id="jsonPreview" class="preview-box" aria-live="polite"></div>
                 </div>
 
-                <div id="tab-text" class="tab-panel">
-                    <div class="import-panel-heading legacy">
-                        <h2>导入旧碎片</h2>
-                        <span>兼容旧版纯文本记忆</span>
-                    </div>
-
-                    <label class="import-dropzone legacy">
-                        <input type="file" id="txtFile" accept=".txt">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 16V4M7 9l5-5 5 5"/>
-                            <path d="M5 14v5h14v-5"/>
-                        </svg>
-                        <span>
-                            <strong>选择文本文件</strong>
-                            <small id="txtFileName">TXT · 每行一条</small>
-                        </span>
-                    </label>
-
-                    <div class="divider"><span>或直接输入</span></div>
-
-                    <div class="form-group import-textarea-wrap">
-                        <textarea id="txtInput" class="textarea" rows="6"
-                            placeholder="每行一条记忆&#10;用户的名字叫…&#10;用户喜欢…"></textarea>
-                    </div>
-
-                    <div class="import-actions legacy">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="skipScore">
-                            <span>跳过评分</span>
-                        </label>
-                        <button type="button" class="btn btn-secondary" onclick="doTextImport()">导入碎片录</button>
-                    </div>
-                </div>
             </div>
 
-            <div id="import-result" class="msg-container"></div>
+            <div id="import-result" class="msg-container" role="status"></div>
         </section>
 
         <!-- 备份 -->
-        <section id="section-export" class="section">
-            <div class="section-header">
-                <h1>备份</h1>
-            </div>
+        <section id="section-export" class="section transfer-section">
 
-            <div class="card">
+            <div class="card transfer-backup-card">
                 <div class="export-info">
                     <svg class="export-icon" width="28" height="28" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -273,87 +117,73 @@
                         <polyline points="7 3 7 8 15 8"/>
                     </svg>
                     <div class="export-text">
-                        <h3>完整备份</h3>
-                        <p>人格提示词、记忆、后台提取与遗忘状态、真实会话和交接摘要</p>
+                        <h3>记忆备份</h3>
+                        <p>人格提示词、人物预设、记忆、日记、月度总结、便签和会话</p>
                     </div>
                 </div>
 
-                <div class="export-stats" id="export-stats">统计中…</div>
-                <br>
-                <button type="button" class="btn btn-primary" onclick="doExport()">下载 JSON</button>
+                <div class="export-stats" id="export-stats" aria-live="polite">统计中…</div>
+                <label class="transfer-history-option"><input type="checkbox" id="export-history-messages">包含全部历史消息（文件可能较大）</label>
+                <p class="transfer-restore-note">默认不包含聊天原文；完整备份请勾选上方选项。人物预设和流动记忆保留条数会一并保存。</p>
+                <div class="transfer-download-row"><span id="export-progress" role="status"></span><button type="button" class="btn btn-primary" id="export-download" onclick="doExport()">下载 JSON <span aria-hidden="true">↓</span></button></div>
+                <iframe id="export-download-frame" title="备份下载" hidden></iframe>
             </div>
 
-            <div class="card tips-card">
-                <h4>提示</h4>
+            <div class="transfer-note">
+                <h4>备份说明</h4>
                 <ul>
-                    <li>导出文件可通过「导入 → JSON 恢复」完整恢复</li>
-                    <li>完整恢复会覆盖当前提示词、记忆条目、日记、后台记忆任务和会话</li>
+                    <li>导出文件可在「导入」页预览并恢复，历史消息可单独选择</li>
+                    <li>完整恢复会覆盖当前提示词、常驻记忆、日记、后台记忆任务和会话</li>
                     <li>建议定期备份</li>
                     <li>可用于迁移到其他实例</li>
+                    <li>桌面装扮、便签位置、头像和收藏请另行导出「本机桌面」</li>
+                    <li>模型接口密钥和 Bot 授权不包含在此备份中</li>
                 </ul>
             </div>
         </section>
 
         <!-- 记忆 -->
-        <section id="section-standing" class="section">
-            <div class="section-header">
-                <h1>记忆</h1>
-                <span class="section-count" id="standing-stats"></span>
-            </div>
+        <section id="section-standing" class="phone-paper-app section" data-memory-view="fragments">
+            {% include 'memory-archive.html' %}
+            <dialog id="fragment-editor" aria-labelledby="fragment-editor-title"><form onsubmit="event.preventDefault(); saveManualFragment(this)">
+                <h3 id="fragment-editor-title">写记忆片段</h3>
+                <label>正文<textarea name="content" required maxlength="800" rows="6" placeholder="以助手的第一人称写下这段记忆"></textarea></label>
+                <fieldset><legend>类别</legend>{% for category in ['情绪','里程碑','日常','计划'] %}<label><input type="checkbox" name="category" value="{{ category }}">{{ category }}</label>{% endfor %}</fieldset>
+                <label>重要度 <input type="number" name="importance" min="1" max="10" step="1" value="5" required></label>
+                <p role="status"></p><footer><button type="button" id="fragment-delete" hidden onclick="deleteManualFragment(this.form)">删除</button><button type="button" id="fragment-editor-close" onclick="this.closest('dialog').close()">取消</button><button type="submit">保存</button></footer>
+            </form></dialog>
+        </section>
 
-            <div class="standing-view-switch" role="group" aria-label="记忆视图">
-                <button type="button" class="active" data-standing-view="directory" onclick="switchStandingView('directory')">记忆条目</button>
-                <button type="button" data-standing-view="fragments" onclick="switchStandingView('fragments')">碎片记忆</button>
-                <button type="button" data-standing-view="long-term" onclick="switchStandingView('long-term')">日记</button>
-            </div>
-
-            <div class="standing-view active" id="standing-view-directory">
-            <div class="standing-memory-layout">
-                <div class="standing-memory-toolbar">
-                    <div class="standing-memory-heading">
-                        <h3>管理记忆</h3>
-                        <span id="standing-active-count"></span>
+        <section id="section-diary" class="section phone-diary" aria-label="日记">
+            <div class="diary-notebook-page" id="diary-notebook">
+                <div class="diary-notebook-content" role="region" aria-label="日记本" tabindex="-1">
+                    <div id="diary-notebook-msg" role="status" aria-live="polite"></div>
+                    <div class="diary-notebook-spread" id="diary-notebook-spread">
+                        <section class="diary-calendar-page" aria-label="日记月历">
+                            <div class="diary-calendar-flipper" id="diary-calendar-flipper" tabindex="0" role="group" aria-label="月历卡，拖动边缘向任意方向掀起，左右拖动或按回车翻面">
+                                <div class="diary-calendar-front" id="diary-calendar-front">
+                            <label class="diary-calendar-heading">
+                                <span id="diary-calendar-month"></span>
+                                <input type="month" id="diary-calendar-month-picker" aria-label="选择月份" min="0001-01" max="9999-12" onchange="selectDiaryNotebookMonth(this.value)">
+                            </label>
+                            <div class="diary-calendar-weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+                            <div class="diary-calendar-grid" id="diary-calendar-grid"></div>
+                            <button type="button" class="diary-undated-toggle" id="diary-undated-toggle" onclick="selectDiaryNotebookDay('')" hidden>未标日期的日记</button>
+                                </div>
+                                <div class="diary-calendar-back" id="diary-calendar-back" inert aria-hidden="true">
+                                    <div class="diary-month-heading"><span id="diary-month-title"></span></div>
+                                    <div id="diary-month-content" class="diary-month-content"></div>
+                                    <p id="diary-month-status" role="status" aria-live="polite"></p>
+                                    <div class="diary-month-actions"><button type="button" class="diary-month-action" id="diary-month-generate" onclick="generateDiaryMonth()">生成</button><button type="button" class="diary-month-action" id="diary-month-copy" onclick="copyDiaryMonth()" hidden>复制全文</button></div>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="diary-reading-section" aria-label="当天日记">
+                            <div class="diary-reading-heading"><time id="diary-reading-date"></time></div>
+                            <div id="diary-reading-list"></div>
+                        </section>
                     </div>
-                    <button type="button" class="standing-add-memory" onclick="openStandingMemoryEditor()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                            <path d="M12 5v14M5 12h14"/>
-                        </svg>
-                        <span>添加固定记忆</span>
-                    </button>
-                </div>
-
-                <div id="standing-msg" class="msg-container"></div>
-                <div class="standing-pending" id="standing-pending-section" style="display:none">
-                    <div class="standing-list-title">
-                        <h3>Pending</h3>
-                        <span id="standing-pending-count"></span>
-                    </div>
-                    <div id="standing-pending-list" class="standing-list"></div>
-                </div>
-                <div class="standing-active kelivo-memory-section">
-                    <div id="standing-active-list" class="standing-list kelivo-memory-list"></div>
-                </div>
-            </div>
-            </div>
-
-            <div class="standing-view" id="standing-view-fragments">
-                <div class="standing-memory-layout">
-                    <div class="standing-memory-toolbar">
-                        <div class="standing-memory-heading">
-                            <h3>碎片记忆</h3>
-                            <span id="memory-fragment-count"></span>
-                        </div>
-                    </div>
-                    <p id="memory-extraction-status" class="credential-help" role="status"></p>
-                    <p class="credential-help">这里保存从旧日记小摘要迁移或从会话提取的无标题短文本。碎片不使用日期元数据；必要的时间直接写在内容开头。</p>
-                    <div id="memory-fragment-list" class="long-term-memory-list"></div>
-                    <h3>待遗忘</h3>
-                    <p class="credential-help">这些碎片已暂停召回。保留会重新开始衰减计时；确认遗忘后删除。</p>
-                    <div id="fragment-forgetting-list" class="long-term-memory-list"></div>
-                </div>
-            </div>
-
-            <div class="standing-view" id="standing-view-long-term">
+            <div class="diary-notebook-management" id="standing-view-long-term" hidden>
                 <div class="standing-memory-layout">
                     <div class="standing-memory-toolbar">
                         <div class="standing-memory-heading">
@@ -374,20 +204,13 @@
                                 </svg>
                                 <span>写一页</span>
                             </button>
-                            <button type="button" class="long-term-diary-action" id="long-term-diary-btn" onclick="createLongTermDiaryDraft()">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 20h9"/>
-                                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-                                </svg>
-                                <span>根据对话写日记</span>
-                            </button>
                         </div>
                     </div>
                     <div class="long-term-selection-toolbar" id="long-term-selection-toolbar" hidden>
                         <span id="long-term-selection-count">已选 0 条</span>
                         <div class="long-term-selection-actions">
                             <button type="button" class="btn btn-secondary btn-sm" id="long-term-select-all" onclick="toggleSelectAllLongTermMemories()">全选</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="long-term-generate-keywords" onclick="generateSelectedDiaryKeywords()" disabled>生成关键词</button>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="toggleLongTermSelectionMode(false)">取消</button>
                             <button type="button" class="btn btn-danger btn-sm" id="long-term-delete-selected" onclick="deleteSelectedLongTermMemories()" disabled>删除所选</button>
                         </div>
@@ -403,23 +226,31 @@
                     <div id="long-term-list" class="long-term-memory-list"></div>
                 </div>
             </div>
+                </div>
+            </div>
 
         </section>
 
-        <div class="memory-editor-modal" id="memory-editor-modal" aria-hidden="true">
+        <div class="memory-editor-modal phone-paper-app" id="memory-editor-modal" aria-hidden="true">
             <button type="button" class="memory-editor-backdrop" aria-label="关闭" onclick="closeStandingMemoryEditor()"></button>
-            <div class="memory-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="memory-editor-title">
-                <div class="memory-editor-head">
-                    <h3 id="memory-editor-title">记忆</h3>
-                    <button type="button" class="memory-editor-close" aria-label="关闭" onclick="closeStandingMemoryEditor()">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                            <path d="M18 6 6 18M6 6l12 12"/>
-                        </svg>
-                    </button>
+            <div class="memory-editor-dialog memory-typewriter-dialog" role="dialog" aria-modal="true" aria-labelledby="memory-editor-title">
+                <div class="memory-typewriter-sheet">
+                    <div class="memory-editor-head">
+                        <h3 id="memory-editor-title">记忆</h3>
+                        <button type="button" class="memory-editor-close" aria-label="关闭" onclick="closeStandingMemoryEditor()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                                <path d="M18 6 6 18M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="memory-editor-body">
+                        <textarea id="memory-editor-content" class="textarea" rows="8" placeholder="输入记忆内容"></textarea>
+                        <div id="memory-editor-msg" class="msg-container" role="status" aria-live="polite"></div>
+                    </div>
                 </div>
-                <div class="memory-editor-body">
-                    <textarea id="memory-editor-content" class="textarea" rows="8" placeholder="输入记忆内容"></textarea>
-                    <div id="memory-editor-msg" class="msg-container" role="status" aria-live="polite"></div>
+                <div class="memory-typewriter-machine">
+                    <div class="memory-typewriter-roller" aria-hidden="true"><span></span></div>
+                    <div class="memory-typewriter-scale" aria-hidden="true"></div>
                     <div class="memory-editor-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeStandingMemoryEditor()">取消</button>
                         <button type="button" class="btn btn-primary" id="memory-editor-save" onclick="saveStandingMemory()">保存</button>
@@ -428,7 +259,7 @@
             </div>
         </div>
 
-        <div class="memory-editor-modal" id="long-term-memory-editor-modal" aria-hidden="true">
+        <div class="memory-editor-modal diary-editor" id="long-term-memory-editor-modal" aria-hidden="true">
             <button type="button" class="memory-editor-backdrop" aria-label="关闭" onclick="closeLongTermMemoryEditor()"></button>
             <div class="memory-editor-dialog long-term-memory-dialog" role="dialog" aria-modal="true" aria-labelledby="long-term-memory-editor-title">
                 <div class="memory-editor-head">
@@ -443,30 +274,33 @@
                     <div class="long-term-editor-heading">
                         <label class="long-term-date-field">
                             <span>日期</span>
-                            <input id="long-term-memory-date" class="control-input" type="date">
-                            <svg class="long-term-date-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M8 2v4M16 2v4M3 10h18"/>
-                                <rect x="3" y="4" width="18" height="18" rx="2"/>
-                                <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>
-                            </svg>
+                            <input id="long-term-memory-date" class="control-input" type="date" aria-label="日期">
                         </label>
                         <input id="long-term-memory-title" class="control-input long-term-title-input" type="text" maxlength="200" placeholder="这一页的标题" aria-label="标题">
                     </div>
+                    <label class="long-term-author-field" for="long-term-memory-author">
+                        <span>作者</span>
+                        <select id="long-term-memory-author" class="control-input">
+                            <option value="user">用户</option>
+                            <option value="assistant">助手</option>
+                        </select>
+                    </label>
                     <div class="long-term-summary-field">
                         <button type="button" class="btn btn-secondary btn-sm" onclick="openLongTermSummaryEditor(longTermEditingId)">关键词</button>
                         <span id="long-term-memory-summary-preview" class="long-term-summary-preview"></span>
                     </div>
                     <textarea id="long-term-memory-content" class="textarea long-term-memory-content-input" rows="16" placeholder="写下这一天……" aria-label="日记内容"></textarea>
+                    <div id="long-term-merge-sources"></div>
                     <div id="long-term-memory-editor-msg" class="msg-container" role="status" aria-live="polite"></div>
-                    <div class="memory-editor-actions">
-                        <button type="button" class="btn btn-secondary" onclick="closeLongTermMemoryEditor()">取消</button>
-                        <button type="button" class="btn btn-primary" id="long-term-memory-editor-save" onclick="saveLongTermMemory()">保存</button>
-                    </div>
+                </div>
+                <div class="memory-editor-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeLongTermMemoryEditor()">取消</button>
+                    <button type="button" class="btn btn-primary" id="long-term-memory-editor-save" onclick="saveLongTermMemory()">保存</button>
                 </div>
             </div>
         </div>
 
-        <div class="memory-editor-modal" id="long-term-summary-modal" aria-hidden="true">
+        <div class="memory-editor-modal diary-editor" id="long-term-summary-modal" aria-hidden="true">
             <button type="button" class="memory-editor-backdrop" aria-label="关闭" onclick="closeLongTermSummaryEditor()"></button>
             <div class="memory-editor-dialog long-term-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="long-term-summary-title">
                 <div class="memory-editor-head">
@@ -479,133 +313,214 @@
                 </div>
                 <div class="memory-editor-body">
                     <textarea id="long-term-summary-content" class="textarea long-term-summary-text" rows="8" placeholder="每行一个关键词"></textarea>
-                    <div class="memory-editor-actions">
-                        <span id="long-term-summary-msg"></span>
-                        <button type="button" class="btn btn-primary" onclick="saveLongTermSummary()">保存</button>
-                        <button type="button" class="btn btn-secondary" onclick="closeLongTermSummaryEditor()">关闭</button>
-                    </div>
+                </div>
+                <div class="memory-editor-actions">
+                    <span id="long-term-summary-msg"></span>
+                    <button type="button" id="long-term-summary-generate" class="btn btn-secondary" onclick="generateLongTermSummaryKeywords()">生成</button>
+                    <button type="button" id="long-term-summary-save" class="btn btn-primary" onclick="saveLongTermSummary()">保存</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeLongTermSummaryEditor()">关闭</button>
                 </div>
             </div>
         </div>
 
         <!-- Heartbeat activity -->
-        <section id="section-heartbeats" class="section">
-            <div class="section-header">
-                <h1>心跳活动</h1>
-                <span class="section-count" id="heartbeat-activity-count"></span>
-            </div>
-            <div class="heartbeat-settings-panel">
-                <div class="heartbeat-settings-head">
-                    <div>
-                        <h3>心跳设置</h3>
-                        <span id="heartbeat-settings-note">载入中…</span>
+        <section id="section-heartbeats" class="phone-paper-app section">
+            <div class="coffee-desk">
+                <div class="heartbeat-coffee" id="heartbeat-coffee">
+                    <img class="coffee-body-art" src="/static/images/heartbeat-cup.svg?v={{ static_version }}" alt="" width="300" height="370" loading="lazy" decoding="async" aria-hidden="true">
+                    <div class="coffee-steam" aria-hidden="true"><i></i><i></i><i></i></div>
+                    <div class="coffee-lid">
+                        <label class="coffee-stopper" title="打开杯口，启用心跳；盖上则关闭">
+                            <input type="checkbox" id="heartbeatEnabled" aria-label="启用心跳" onchange="saveHeartbeatSettings(true)" disabled>
+                            <span class="coffee-stopper-hole" aria-hidden="true"></span>
+                            <span class="coffee-stopper-cap" aria-hidden="true"></span>
+                        </label>
                     </div>
-                    <label class="heartbeat-switch">
-                        <input type="checkbox" id="heartbeatEnabled">
-                        <span></span>
-                    </label>
-                </div>
-                <div class="heartbeat-settings-grid">
-                    <label class="heartbeat-setting-field">
-                        <span>触发间隔</span>
-                        <div class="heartbeat-number-input">
-                            <input type="number" id="heartbeatInterval" min="1" max="1440" value="30">
-                            <span>分钟</span>
+                    <div class="coffee-cup">
+                        <div class="coffee-sleeve">
+                            <label class="coffee-interval" for="heartbeatInterval">
+                                <span>苏醒间隔</span>
+                                <input type="number" id="heartbeatInterval" min="1" max="1440" step="1" value="30" aria-describedby="coffee-interval-unit" disabled>
+                                <span id="coffee-interval-unit">MINUTES / 分钟</span>
+                            </label>
                         </div>
-                    </label>
-                    <label class="heartbeat-setting-field">
-                        <span>路由</span>
-                        <select id="heartbeatProvider" class="control-input">
-                            <option value="openai">OpenAI</option>
-                            <option value="anthropic">Anthropic</option>
-                        </select>
-                    </label>
-                    <label class="heartbeat-setting-field heartbeat-model-field">
-                        <span>模型</span>
-                        <input type="text" id="heartbeatModel" class="control-input" placeholder="留空使用路由默认模型">
-                    </label>
-                </div>
-                <div class="heartbeat-settings-actions">
-                    <span id="heartbeat-settings-msg"></span>
-                    <button type="button" class="btn btn-primary" onclick="saveHeartbeatSettings()">保存设置</button>
-                </div>
-            </div>
-            <div class="toolbar-card">
-                <div class="toolbar">
-                    <span class="toolbar-note">模型苏醒后的判断、工具调用与结果</span>
-                </div>
-                <div class="toolbar-actions">
-                    <button type="button" class="btn btn-secondary" onclick="loadHeartbeatActivities()">刷新</button>
-                </div>
-            </div>
-            <div id="heartbeat-activity-list" class="heartbeat-activity-list"></div>
-        </section>
-
-        <!-- Prompt Console -->
-        <section id="section-prompts" class="section prompt-console-section">
-            <div class="section-header">
-                <h1>提示词</h1>
-            </div>
-            <p class="credential-help prompt-console-note">编辑主人格及交互提示词。实际拼接时，Interaction 位于常驻记忆和流动记忆之后。</p>
-            <div class="prompt-console-frame-shell">
-                <iframe id="prompt-console-frame" class="prompt-console-frame" title="提示词编辑器"></iframe>
-            </div>
-        </section>
-
-        <!-- Settings -->
-        <section id="section-settings" class="section">
-            <div class="section-header">
-                <h1>设置</h1>
-            </div>
-            <div class="heartbeat-settings-panel anthropic-credential-panel">
-                <div class="heartbeat-settings-head">
-                    <div>
-                        <h3>Anthropic 路由 Key</h3>
-                        <span id="anthropic-credential-note">载入中…</span>
+                        <aside class="coffee-recipe" aria-label="心跳配料表">
+                            <h2>Today's blend</h2>
+                            <p class="coffee-recipe-subtitle">心跳配料表</p>
+                            <dl>
+                                <div><dt>01 / 路由</dt><dd id="heartbeatRoute" tabindex="0">—</dd></div>
+                                <div><dt>02 / 供应商</dt><dd id="heartbeatProviderName" tabindex="0">—</dd></div>
+                                <div><dt>03 / 模型</dt><dd id="heartbeatModelName" tabindex="0">—</dd></div>
+                            </dl>
+                            <p class="coffee-recipe-foot">随当前会话调配</p>
+                        </aside>
                     </div>
-                </div>
-                <p class="credential-help">从 Dashboard 保存到数据库，服务重启后仍然有效；接口不会返回 Key 明文，也不会放入网关备份。不用时可手动删除。</p>
-                <div class="credential-controls">
-                    <input type="password" id="anthropicCredentialKey" class="control-input" placeholder="粘贴或替换 API Key" maxlength="4000" autocomplete="new-password" spellcheck="false">
-                    <button type="button" class="btn btn-primary" onclick="saveAnthropicCredential()">保存 Key</button>
-                    <button type="button" class="btn btn-danger" id="anthropic-credential-delete" onclick="deleteAnthropicCredential()" disabled>删除 Key</button>
-                </div>
-                <div id="anthropic-credential-msg" class="provider-panel-msg"></div>
-            </div>
-            <div class="heartbeat-settings-panel">
-                <div class="heartbeat-settings-head">
-                    <div>
-                        <h3>聊天路由</h3>
-                        <span id="route-settings-note">载入中…</span>
-                    </div>
-                </div>
-                <div class="route-settings-grid">
-                    <label class="heartbeat-setting-field">
-                        <span>Provider</span>
-                        <select id="routeProvider" class="control-input">
-                            <option value="auto">Auto</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="anthropic">Anthropic</option>
-                        </select>
-                    </label>
-                </div>
-                <div class="heartbeat-settings-actions">
-                    <span id="route-settings-msg"></span>
-                    <button type="button" class="btn btn-primary" onclick="saveRouteSettings()">保存</button>
-                </div>
-            </div>
-            <div class="heartbeat-settings-panel openai-provider-panel">
-                <div class="heartbeat-settings-head">
-                    <div>
-                        <h3>OpenAI 供应商</h3>
-                        <span id="openai-provider-note">载入中…</span>
-                    </div>
-                    <button type="button" class="provider-add-button" onclick="toggleOpenAiProviderCreator()" title="添加供应商" aria-label="添加供应商">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                            <path d="M12 5v14M5 12h14"/>
+                    <div class="coffee-saucer-shadow" aria-hidden="true"></div>
+                    <button type="button" class="coffee-bean-save" id="heartbeat-save" onclick="saveHeartbeatSettings()" aria-label="保存心跳间隔" title="保存间隔" disabled>
+                        <svg viewBox="0 0 80 54" fill="none" aria-hidden="true">
+                            <defs><linearGradient id="coffee-bean-shell" x1="15" y1="3" x2="58" y2="52" gradientUnits="userSpaceOnUse"><stop stop-color="#a48059"/><stop offset=".4" stop-color="#795637"/><stop offset="1" stop-color="#4c3424"/></linearGradient></defs>
+                            <ellipse cx="40" cy="27" rx="35" ry="23" fill="url(#coffee-bean-shell)" stroke="#62452e" stroke-width="1.2"/>
+                            <path d="M13 30C24 14 29 42 42 27S60 29 68 20" stroke="#3f2b1e" stroke-width="4" stroke-linecap="round"/>
+                            <path d="M13 27C24 11 29 39 42 24S60 26 68 17" stroke="#c6a77a" stroke-opacity=".65" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M15 17C24 6 45 6 56 12" stroke="#d1b58e" stroke-opacity=".35" stroke-width="2" stroke-linecap="round"/>
                         </svg>
+                        <span>保存间隔</span>
                     </button>
                 </div>
+            </div>
+            <div class="coffee-controls">
+                <span id="heartbeat-settings-note" role="status">载入中…</span>
+                <button type="button" class="coffee-save" id="heartbeat-settings-retry" onclick="loadHeartbeatSettings()" hidden>重新加载设置</button>
+                <span class="coffee-switch-hint">轻点杯口塞盖，开启或关闭心跳</span>
+                <span id="heartbeat-settings-msg" role="status" aria-live="polite"></span>
+            </div>
+            <details class="heartbeat-newspaper">
+                <summary>
+                    <span class="newspaper-masthead">The Wake-up Post</span>
+                    <span class="newspaper-deck"><span>苏醒札记</span><span id="heartbeat-activity-count"></span></span>
+                    <span class="newspaper-fold-art" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="newspaper-open-hint">展开报纸，阅读心跳记录 <span aria-hidden="true">↗</span></span>
+                    <span class="newspaper-close-hint">收起报纸 <span aria-hidden="true">↙</span></span>
+                </summary>
+                <div class="newspaper-content">
+                    <div class="newspaper-toolbar"><span>苏醒后的判断、工具调用与结果</span><button type="button" onclick="loadHeartbeatActivities()">刷新记录</button></div>
+                    <div id="heartbeat-activity-list" class="heartbeat-activity-list"></div>
+                </div>
+            </details>
+        </section>
+
+        <!-- Identity Presets -->
+        <section id="section-presets" class="section">
+            <div class="identity-preset-panel">
+                <h2 class="identity-group-title">名字预设</h2>
+                <span id="identity-presets-note" class="identity-load-status" role="status">载入中…</span>
+                <div class="identity-avatar-pair" aria-label="你们的头像">
+                    <div class="identity-avatar-slot">
+                        <button type="button" class="identity-avatar identity-avatar-user" id="identity-avatar-user" aria-label="更换你的头像" title="更换你的头像">
+                            <svg class="identity-avatar-face" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+                                <path d="M29 37v10M71 37v10M39 54c0 13 11 13 11 2 0 11 11 11 11-2" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M22 56h5M73 56h5" stroke="#c6a38c" stroke-width="4" stroke-linecap="round"/>
+                            </svg>
+                            <img id="identity-avatar-user-image" class="identity-avatar-image" alt="你的头像" hidden>
+                            <span class="identity-avatar-camera" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h4l2-3h4l2 3h4v13H4Z" stroke-linejoin="round"/><circle cx="12" cy="13" r="3"/></svg></span>
+                        </button>
+                        <input type="file" id="identity-avatar-user-file" accept="image/*" aria-label="选择你的头像图片" hidden>
+                        <button type="button" class="identity-avatar-reset" id="identity-avatar-user-reset" hidden>恢复默认</button>
+                    </div>
+                    <div class="identity-avatar-slot">
+                        <button type="button" class="identity-avatar identity-avatar-assistant" id="identity-avatar-assistant" aria-label="更换对方的头像" title="更换对方的头像">
+                            <svg class="identity-avatar-face" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+                                <path d="m24 43 9-8 9 8M58 43l9-8 9 8M38 57c5 12 19 12 24 0" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M22 56h5M73 56h5" stroke="#a4b191" stroke-width="4" stroke-linecap="round"/>
+                            </svg>
+                            <img id="identity-avatar-assistant-image" class="identity-avatar-image" alt="对方的头像" hidden>
+                            <span class="identity-avatar-camera" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h4l2-3h4l2 3h4v13H4Z" stroke-linejoin="round"/><circle cx="12" cy="13" r="3"/></svg></span>
+                        </button>
+                        <input type="file" id="identity-avatar-assistant-file" accept="image/*" aria-label="选择对方的头像图片" hidden>
+                        <button type="button" class="identity-avatar-reset" id="identity-avatar-assistant-reset" hidden>恢复默认</button>
+                    </div>
+                </div>
+                <div class="identity-preset-grid">
+                    <label class="heartbeat-setting-field">
+                        <span>你的名字</span>
+                        <input type="text" id="identityUserName" class="control-input" maxlength="80" autocomplete="off" placeholder="填写你的名字">
+                    </label>
+                    <label class="heartbeat-setting-field">
+                        <span>对方名字</span>
+                        <input type="text" id="identityAssistantName" class="control-input" maxlength="80" autocomplete="off" placeholder="填写助手名字">
+                    </label>
+                </div>
+                <div id="identity-avatar-msg" class="identity-avatar-msg" role="status" aria-live="polite"></div>
+                <div class="heartbeat-settings-actions">
+                    <span id="identity-presets-msg"></span>
+                    <button type="button" class="btn btn-primary" onclick="saveIdentityPresets()">保存预设</button>
+                </div>
+            </div>
+            <div class="identity-prompt-sheet">
+                <div class="prompt-console-frame-shell">
+                    <iframe id="prompt-console-frame" class="prompt-console-frame" title="提示词编辑器"></iframe>
+                </div>
+            </div>
+        </section>
+
+        <!-- Settings pages share the existing forms and APIs, with separate destinations. -->
+        <section id="section-suppliers" class="section phone-settings-page" aria-label="模型供应商">
+            <div class="phone-settings-group">
+                <button type="button" data-phone-app="supplier-route"><span>聊天配置<small id="settings-route-label">载入中…</small></span><span data-phone-icon="chevron"></span></button>
+                <button type="button" data-phone-app="supplier-openai"><span>OpenAI 兼容供应商<small id="openai-provider-note">载入中…</small></span><span data-phone-icon="chevron"></span></button>
+                <button type="button" data-phone-app="supplier-anthropic"><span>Anthropic 供应商<small id="anthropic-provider-note">载入中…</small></span><span data-phone-icon="chevron"></span></button>
+            </div>
+
+        </section>
+        <section id="section-supplier-route" class="section phone-settings-page">
+            <form id="api-configuration-form" onsubmit="event.preventDefault(); saveRouteSettings();">
+                <p class="phone-local-note" id="route-settings-note" role="status">载入中…</p>
+                <fieldset class="route-config-group">
+                    <legend>供应商与路由</legend>
+                    <div class="route-config-card">
+                        <label class="route-config-row"><span>供应商</span><select id="routeSupplier" onchange="selectApiConfigurationSupplier(this.value)"><option value="">当前配置 / 手动填写</option></select></label>
+                        <label class="route-config-row"><span>路由</span><select id="routeProvider"><option value="auto">自动</option><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></label>
+                    </div>
+                </fieldset>
+                <fieldset class="route-config-group">
+                    <legend>接口</legend>
+                    <div class="route-config-card">
+                        <label class="route-config-row"><span>地址</span><input id="routeApiUrl" type="url" required autocomplete="url" placeholder="https://example.com/v1"></label>
+                        <div class="route-config-row"><label for="routeApiKey">密钥</label><input id="routeApiKey" type="password" autocomplete="new-password" placeholder="填写密钥"><button type="button" class="route-key-edit" aria-label="修改密钥" onclick="document.getElementById('routeApiKey').focus()"><span data-phone-icon="edit"></span></button></div>
+                    </div>
+                </fieldset>
+                <fieldset class="route-config-group">
+                    <legend>模型</legend>
+                    <div class="route-config-card">
+                        <div class="route-config-row route-model-row"><input id="routeModel" required maxlength="200" autocomplete="off" aria-label="聊天模型" placeholder="模型 ID"><button type="button" class="btn" id="route-fetch-models">拉取模型</button></div>
+                        <label class="route-config-row" id="route-model-picker" hidden><select id="routeModels" aria-label="选择已拉取的模型"></select></label>
+                    </div>
+                    <p id="route-models-msg" role="status"></p>
+                </fieldset>
+                <div class="route-effort-save"><div class="route-thinking-control"><label for="routeThinking">思考 <output id="route-thinking-value">Auto</output></label><div class="route-thinking-slider"><div class="route-thinking-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><input id="routeThinking" type="range" min="0" max="4" step="1" value="0" aria-label="思考强度" aria-valuetext="Auto" oninput="syncRouteThinking()"></div><div class="route-thinking-ticks" aria-hidden="true"><span>Auto</span><span>Low</span><span>Medium</span><span>High</span><span>Max</span></div></div><button type="submit" class="btn btn-primary">保存设置</button></div><span id="route-settings-msg" role="status"></span>
+            </form>
+            <div class="api-preset-manager">
+                <h2>配置预设</h2>
+                <form id="api-preset-form" class="api-preset-save" onsubmit="event.preventDefault(); saveApiConfigurationPreset();">
+                    <input id="api-preset-name" class="control-input" required maxlength="80" placeholder="给这份配置起个名字" aria-label="预设名称"><button type="submit" class="btn">保存预设</button>
+                </form>
+                <div id="api-preset-list" class="api-preset-list"></div>
+            </div>
+        </section>
+        <section id="section-supplier-anthropic" class="section phone-settings-page">
+            <div class="openai-provider-panel">
+                <div class="provider-create-form" id="anthropic-provider-create" hidden>
+                    <div class="provider-form-grid">
+                        <label class="heartbeat-setting-field">
+                            <span>名称</span>
+                            <input type="text" id="anthropicProviderName" class="control-input" maxlength="80" autocomplete="off">
+                        </label>
+                        <label class="heartbeat-setting-field provider-url-field">
+                            <span>API URL</span>
+                            <input type="url" id="anthropicProviderUrl" class="control-input" placeholder="https://api.anthropic.com/v1/messages" autocomplete="url">
+                        </label>
+                        <label class="heartbeat-setting-field">
+                            <span>API Key</span>
+                            <input type="password" id="anthropicProviderKey" class="control-input" autocomplete="new-password">
+                        </label>
+                    </div>
+                    <div class="provider-form-actions">
+                        <label class="provider-active-choice">
+                            <input type="checkbox" id="anthropicProviderActive">
+                            <span>活跃</span>
+                        </label>
+                        <div>
+                            <button type="button" class="btn btn-secondary" onclick="toggleAnthropicProviderCreator(false)">取消</button>
+                            <button type="button" class="btn btn-primary" onclick="createAnthropicProvider()">添加</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="anthropic-provider-list" class="openai-provider-list"></div>
+                <div id="anthropic-provider-msg" class="provider-panel-msg"></div>
+            </div>
+        </section>
+        <section id="section-supplier-openai" class="section phone-settings-page">
+            <div class="openai-provider-panel">
                 <div class="provider-create-form" id="openai-provider-create" hidden>
                     <div class="provider-form-grid">
                         <label class="heartbeat-setting-field">
@@ -635,199 +550,189 @@
                 <div id="openai-provider-list" class="openai-provider-list"></div>
                 <div id="openai-provider-msg" class="provider-panel-msg"></div>
             </div>
-            <div class="heartbeat-settings-panel">
-                <div class="heartbeat-settings-head">
-                    <h3>历史会话</h3>
-                </div>
-                <div class="conversation-model-settings">
-                    <div class="conversation-model-row">
-                        <label class="heartbeat-switch" title="历史搜索">
-                            <input type="checkbox" id="historySearchEnabled">
-                            <span></span>
-                        </label>
-                        <strong>历史搜索</strong>
-                        <input type="url" id="historyEmbeddingUrl" class="control-input" placeholder="接口" autocomplete="url">
-                        <input type="text" id="historyEmbeddingModel" class="control-input" placeholder="模型" autocomplete="off">
-                        <input type="password" id="historyEmbeddingKey" class="control-input" placeholder="密钥" autocomplete="new-password">
-                        <label class="conversation-recall-budget" title="按相关性排序，设置碎片记忆自动召回可占用的最大输入 token 数">
-                            <span>自动召回 ≤</span>
-                            <input type="number" id="longTermRecallTokenBudget" class="control-input conversation-recall-budget-input" min="256" max="8000" step="1" inputmode="numeric">
-                            <span>tokens</span>
-                        </label>
-                    </div>
-                    <div class="conversation-model-row conversation-title-model-row">
-                        <label class="heartbeat-switch" title="自动标题">
-                            <input type="checkbox" id="historyTitleEnabled">
-                            <span></span>
-                        </label>
-                        <strong>自动标题</strong>
-                        <select id="historyTitleProvider" class="control-input">
-                            <option value="">供应商</option>
-                        </select>
-                        <input type="text" id="historyTitleModel" class="control-input" placeholder="模型" autocomplete="off">
-                    </div>
-                    <div class="conversation-model-row conversation-title-model-row">
-                        <span aria-hidden="true"></span>
-                        <strong>交接摘要</strong>
-                        <select id="handoffSummaryProvider" class="control-input">
-                            <option value="">环境变量</option>
-                        </select>
-                        <input type="text" id="handoffSummaryModel" class="control-input" placeholder="模型" autocomplete="off">
-                    </div>
-                    <div class="conversation-model-row conversation-title-model-row">
-                        <span aria-hidden="true"></span>
-                        <strong>记忆提取</strong>
-                        <select id="longTermSummaryProvider" class="control-input">
-                            <option value="">环境变量</option>
-                        </select>
-                        <input type="text" id="longTermSummaryModel" class="control-input" placeholder="模型" autocomplete="off">
-                    </div>
-                </div>
-                <div class="heartbeat-settings-actions">
-                    <span id="conversation-model-settings-msg"></span>
-                    <button type="button" class="btn btn-primary" onclick="saveConversationModelSettings()">保存</button>
-                </div>
-            </div>
-            <div class="heartbeat-settings-panel">
-                <div class="heartbeat-settings-head">
-                    <div>
-                        <h3>OCR</h3>
-                        <span id="ocr-settings-note">载入中…</span>
-                    </div>
-                    <label class="heartbeat-switch" title="启用 OCR">
-                        <input type="checkbox" id="ocrEnabled">
-                        <span></span>
-                    </label>
-                </div>
-                <div class="ocr-settings-grid">
-                    <label class="heartbeat-setting-field">
-                        <span>接口</span>
-                        <input type="url" id="ocrApiUrl" class="control-input" placeholder="https://example.com/v1/chat/completions" autocomplete="url">
-                    </label>
-                    <label class="heartbeat-setting-field">
-                        <span>模型</span>
-                        <input type="text" id="ocrModel" class="control-input" autocomplete="off">
-                    </label>
-                    <label class="heartbeat-setting-field">
-                        <span>密钥</span>
-                        <span class="ocr-secret-input">
-                            <input type="password" id="ocrApiKey" class="control-input" autocomplete="new-password">
-                            <button type="button" class="btn btn-secondary" id="ocrClearKey" onclick="clearOcrApiKey()">清除</button>
+        </section>
+        <section id="section-recall" class="section phone-settings-page" aria-label="召回设置">
+            <section class="recall-connection-settings" id="recall-panel-config">
+            <div class="settings-feature-card">
+            <section id="history-recall-settings" aria-label="记忆召回与日记搜索">
+                <div class="recall-section">
+                    <h3 class="recall-section-label">自动召回</h3>
+                    <label class="recall-setting-row recall-fallback">
+                        <span class="recall-setting-copy"><strong>跨对话片段召回</strong><span id="fragment-recall-help">按分类和关键词召回相关记忆片段，每次最多 3 条。</span></span>
+                        <span class="recall-switch">
+                            <input type="checkbox" id="crossConversationRecallEnabled" role="switch" aria-label="跨对话片段召回" aria-describedby="fragment-recall-help">
+                            <span class="recall-switch-track" aria-hidden="true"></span>
                         </span>
                     </label>
                 </div>
-                <div class="heartbeat-settings-actions">
-                    <span id="ocr-settings-msg"></span>
-                    <button type="button" class="btn btn-primary" onclick="saveOcrSettings()">保存</button>
-                </div>
-            </div>
-            <details class="heartbeat-settings-panel prompt-splice-panel" id="prompt-splice-panel" ontoggle="handlePromptPreviewToggle(event)">
-                <summary class="prompt-splice-summary">
-                    <span>
-                        <strong>全部提示词拼接</strong>
-                        <small>按实际主聊天顺序选择性展开查看</small>
-                    </span>
-                    <span id="prompt-splice-stats">展开后加载</span>
-                </summary>
-                <div class="prompt-splice-actions">
-                    <span id="prompt-splice-note"></span>
-                    <button type="button" class="btn btn-secondary btn-sm" id="prompt-splice-copy" onclick="copyPromptSplicePreview()" disabled>复制全部</button>
-                </div>
-                <div id="prompt-splice-sections" class="prompt-splice-sections"></div>
-            </details>
-            <div class="heartbeat-settings-panel project-about-panel">
-                <div class="heartbeat-settings-head">
-                    <div>
-                        <h3>关于 Ash</h3>
-                        <span>在原始框架之上持续生长的个人记忆网关</span>
+                <div class="recall-section recall-vector-section">
+                    <div class="recall-section-heading">
+                        <h3 class="recall-section-label">日记语义搜索</h3>
+                        <span id="conversation-vector-status" class="recall-status" role="status" title="配置向量模型后用于日记语义搜索">载入中</span>
+                    </div>
+                    <div class="recall-fields">
+                        <label class="recall-field-row" for="historyEmbeddingUrl"><span>接口</span><input type="url" id="historyEmbeddingUrl" placeholder="向量接口地址" aria-label="向量接口" autocomplete="url" spellcheck="false"></label>
+                        <label class="recall-field-row" for="historyEmbeddingModel"><span>模型</span><input type="text" id="historyEmbeddingModel" placeholder="向量模型名称" aria-label="向量模型" autocomplete="off" spellcheck="false"></label>
+                        <label class="recall-field-row" for="historyEmbeddingKey"><span>密钥</span><input type="password" id="historyEmbeddingKey" placeholder="密钥" aria-label="向量密钥" autocomplete="new-password" spellcheck="false"></label>
                     </div>
                 </div>
-                <p class="project-about-copy">
-                    感谢七堂伽藍_ 提供 AI Memory Gateway 的原始框架。Ash 在此基础上重构了记忆流程、面向昂贵模型的提示词缓存策略、多路由与会话管理，并加入了 MCP 工具体系。
-                </p>
-                <div class="project-about-links">
-                    {% if public_repository_url %}<a href="{{ public_repository_url }}" target="_blank" rel="noopener noreferrer">当前项目 · Ash</a>{% endif %}
-                    <a href="https://github.com/garan0613/ai-memory-gateway" target="_blank" rel="noopener noreferrer">原始项目 · AI Memory Gateway</a>
+                <div class="recall-save-actions">
+                    <span id="recall-settings-msg" class="recall-message" role="status"></span>
+                    <button type="button" class="btn" onclick="saveConversationModelSettings('recall')">保存</button>
                 </div>
+            </section>
             </div>
+            </section>
+            <dialog id="recall-detail-dialog"><header><h3></h3><button type="button" aria-label="关闭" onclick="this.closest('dialog').close()">×</button></header><div class="recall-dialog-content"></div></dialog>
+        </section>
+        <section id="section-settings" class="section phone-settings-page" aria-label="其它">
+            <div class="conversation-generation-panel">
+                <h2 class="other-settings-group-title">会话</h2>
+                <div class="other-settings-card">
+                    <details class="other-model-task">
+                        <summary>自动标题</summary>
+                        <div class="other-model-fields">
+                            <label class="route-config-row"><span>供应商</span><select id="historyTitleProvider" aria-label="会话自动标题供应商"><option value="">环境变量</option></select></label>
+                            <label class="route-config-row"><span>模型</span><input id="historyTitleModel" placeholder="模型" autocomplete="off" aria-label="会话自动标题模型"></label>
+                        </div>
+                    </details>
+                    <details class="other-model-task">
+                        <summary>Compact</summary>
+                        <div class="other-model-fields">
+                            <label class="route-config-row"><span>供应商</span><select id="handoffSummaryProvider" aria-label="会话Compact供应商"><option value="">环境变量</option></select></label>
+                            <label class="route-config-row"><span>模型</span><input id="handoffSummaryModel" placeholder="模型" autocomplete="off" aria-label="会话Compact模型"></label>
+                        </div>
+                    </details>
+                    <details class="other-model-task">
+                        <summary>临时摘要</summary>
+                        <div class="other-model-fields">
+                            <label class="route-config-row"><span>供应商</span><select id="temporarySummaryProvider" aria-label="会话临时摘要供应商"><option value="">环境变量</option></select></label>
+                            <label class="route-config-row"><span>模型</span><input id="temporarySummaryModel" placeholder="模型" autocomplete="off" aria-label="会话临时摘要模型"></label>
+                        </div>
+                    </details>
+                </div>
+                <h2 class="other-settings-group-title">记忆片段</h2>
+                <div class="other-settings-card">
+                    <label class="route-config-row"><span>提取间隔（轮）</span><input id="fragmentInterval" type="number" min="1" max="100" value="3"></label>
+                    <details class="other-model-task"><summary>提取模型</summary><div class="other-model-fields">
+                        <label class="route-config-row"><span>供应商</span><select id="fragmentProvider"><option value="">环境变量</option></select></label>
+                        <label class="route-config-row"><span>模型</span><input id="fragmentModel" placeholder="模型"></label>
+                    </div></details>
+                </div>
+                <h2 class="other-settings-group-title">日记</h2>
+                <div class="other-settings-card">
+                    <details class="other-model-task">
+                        <summary>关键词</summary>
+                        <div class="other-model-fields">
+                            <label class="route-config-row"><span>供应商</span><select id="diaryKeywordProvider" aria-label="日记关键词供应商"><option value="">环境变量</option></select></label>
+                            <label class="route-config-row"><span>模型</span><input id="diaryKeywordModel" placeholder="模型" autocomplete="off" aria-label="日记关键词模型"></label>
+                        </div>
+                    </details>
+                    <details class="other-model-task">
+                        <summary>总结日记</summary>
+                        <div class="other-model-fields">
+                            <label class="route-config-row"><span>供应商</span><select id="diaryMergeProvider" aria-label="总结日记供应商"><option value="">环境变量</option></select></label>
+                            <label class="route-config-row"><span>模型</span><input id="diaryMergeModel" placeholder="模型" autocomplete="off" aria-label="总结日记模型"></label>
+                        </div>
+                    </details>
+                </div>
+                <div class="other-settings-actions"><span id="conversation-model-settings-msg" role="status"></span><button type="button" class="btn btn-primary" onclick="saveConversationModelSettings('generation')">保存</button></div>
+            </div>
+            <section class="mcp-settings" aria-labelledby="mcp-title">
+                <div class="mcp-heading">
+                    <h2 id="mcp-title" class="other-settings-group-title">MCP 工具</h2>
+                    <button type="button" class="mcp-text-button" id="mcp-add" onclick="addMcpServer()" hidden>＋ 添加</button>
+                </div>
+                <div id="mcp-servers" class="mcp-server-list"></div>
+                <div id="mcp-state" class="mcp-state">
+                    <span id="mcp-settings-msg" role="status">载入中…</span>
+                    <button type="button" class="mcp-text-button" id="mcp-retry" onclick="loadMcpSettings()" hidden>重试</button>
+                </div>
+                <div id="mcp-footer" class="mcp-footer" hidden>
+                    <button type="button" class="btn btn-primary" id="mcp-save" onclick="saveMcpSettings()">保存</button>
+                </div>
+            </section>
+            <section class="other-ocr-settings" aria-labelledby="other-ocr-title">
+                <h2 id="other-ocr-title" class="other-settings-group-title">OCR</h2>
+                <p id="ocr-settings-note" class="other-settings-message" role="status">载入中…</p>
+                <div class="route-config-card">
+                    <div class="route-config-row other-ocr-switch"><span>启用</span><label class="heartbeat-switch"><input type="checkbox" id="ocrEnabled" aria-label="启用 OCR"><span></span></label></div>
+                    <label class="route-config-row"><span>地址</span><input type="url" id="ocrApiUrl" placeholder="接口地址" autocomplete="url"></label>
+                    <label class="route-config-row"><span>模型</span><input id="ocrModel" placeholder="模型" autocomplete="off"></label>
+                    <div class="route-config-row"><label for="ocrApiKey">密钥</label><input type="password" id="ocrApiKey" autocomplete="new-password" placeholder="填写密钥"><button type="button" class="btn btn-danger" id="ocrClearKey" onclick="clearOcrApiKey()">清除</button></div>
+                </div>
+                <div class="other-settings-actions"><span id="ocr-settings-msg" role="status"></span><button type="button" class="btn btn-primary" onclick="saveOcrSettings()">保存</button></div>
+            </section>
         </section>
 
         <!-- Token Usage -->
-        <section id="section-quotes" class="section">
+        <section id="section-quotes" class="phone-paper-app usage-board-content" hidden>
             <div class="section-header">
-                <h1>Token 用量</h1>
+                <h1>用量统计</h1>
+                <button type="button" class="usage-board-close" onclick="closeUsageBoard()" aria-label="关闭用量统计">×</button>
+            </div>
+            <div class="usage-board-status">
                 <span class="section-count" id="usage-stats"></span>
+                <button type="button" class="usage-refresh" onclick="loadTokenUsage()">刷新</button>
             </div>
 
-            <div class="usage-grid" id="usage-summary">
+            <div class="usage-grid" id="usage-summary" hidden>
                 <div class="usage-stat-card"><span>今日 Token</span><strong id="usage-today">-</strong></div>
                 <div class="usage-stat-card"><span>近 7 天 Token</span><strong id="usage-week">-</strong></div>
                 <div class="usage-stat-card"><span>请求次数</span><strong id="usage-requests">-</strong></div>
                 <div class="usage-stat-card"><span>缓存命中 Token</span><strong id="usage-cache">-</strong></div>
             </div>
+<nav class="usage-pages-nav" aria-label="用量分页"><button type="button" data-usage-page="0" aria-controls="usage-page-0" aria-current="page">总览</button><button type="button" data-usage-page="1" aria-controls="usage-page-1">模型</button><button type="button" data-usage-page="2" aria-controls="usage-page-2">请求</button></nav>
+<div class="usage-pages" id="usage-pages"><section class="usage-page" id="usage-page-0" aria-label="总览">            <div class="usage-overview" id="usage-overview"></div>            <div class="card usage-calendar-card">
+                <div class="standing-list-title"><h3>用量热力图</h3><span id="usage-heatmap-total"></span></div>
+                <p class="usage-period-label">最近 180 天 · 颜色越深，Token 用量越多</p>
+                <div class="usage-calendar-scroll"><div class="usage-heatmap" id="usage-heatmap"></div></div>
+                <div class="usage-legend"><span>少</span><i class="level-0"></i><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i><span>多</span></div>
+                <p id="usage-day-detail" class="usage-period-label" aria-live="polite">轻触日期查看当天用量</p>
+            </div>
+</section><section class="usage-page" id="usage-page-1" aria-label="模型">
 
             <div class="card usage-ranking">
                 <div class="standing-list-title">
-                    <h3>模型用量排行</h3>
+                    <h3>近 7 天模型用量排行</h3>
                     <span id="usage-ranking-count"></span>
                 </div>
-                <div class="table-container usage-table-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>排名</th>
-                                <th>模型</th>
-                                <th>Provider</th>
-                                <th>请求</th>
-                                <th>Input</th>
-                                <th>Output</th>
-                                <th>Total</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usage-ranking-body"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="standing-list-title">
-                    <h3>最近 30 天热视图</h3>
-                    <span id="usage-heatmap-total"></span>
-                </div>
-                <div class="usage-heatmap" id="usage-heatmap"></div>
-            </div>
+                <div class="usage-ranking-head"><span>模型</span><span>请求数</span></div>
+                <div class="usage-ranking-bars" id="usage-ranking-body"></div>
+            </div></section><section class="usage-page" id="usage-page-2" aria-label="请求">
 
             <div class="card">
                 <div class="standing-list-title">
                     <h3>最近请求</h3>
                     <span id="usage-log-count"></span>
                 </div>
-                <div class="usage-table-wrap">
-                    <table class="data-table usage-log-table">
-                        <thead>
-                            <tr>
-                                <th>时间</th>
-                                <th>模型</th>
-                                <th>Provider</th>
-                                <th>Stream</th>
-                                <th>Input</th>
-                                <th>Output</th>
-                                <th>Total</th>
-                                <th>Cache Read</th>
-                                <th>Cache Create</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usage-log-body"></tbody>
-                    </table>
-                </div>
+                <div id="usage-log-body" class="usage-log-list"></div>
             </div>
+</section></div>
         </section>
 
+        {% include 'bot-connections.html' %}
     </main>
 </div>
 
 
 <script>window.__MG_CSRF__ = {{ csrf_token | tojson }};</script>
 <script src="/static/js/dashboard.js?v={{ static_version }}"></script>
+<script src="/static/js/identity-avatars.js?v={{ static_version }}"></script>
+<script src="/static/js/settings-desk.js?v={{ static_version }}"></script>
+<script src="/static/js/memory-archive.js?v={{ static_version }}"></script>
+<script src="/static/js/memory-notebook.js?v={{ static_version }}"></script>
+<script src="/static/js/usage-paper.js?v={{ static_version }}"></script>
+<script src="/static/js/merle-icons.js?v={{ static_version }}"></script>
+{% include 'conversation-prompts.html' %}
+<script src="/static/js/conversation-prompts.js?v={{ static_version }}"></script>
+<script src="/static/js/phone-shell.js?v={{ static_version }}"></script>
+<script src="/static/js/bot-connections.js?v={{ static_version }}"></script>
+<script src="/static/js/qq-connections.js?v={{ static_version }}"></script>
+<script src="/static/js/social-connections.js?v={{ static_version }}"></script>
+<script src="/static/js/phone-noteboard.js?v={{ static_version }}"></script>
+<script src="/static/js/merle-phone-media.js?v={{ static_version }}"></script>
+<script src="/static/js/merle-phone.js?v={{ static_version }}"></script>
+<script src="/static/js/ash-opening.js?v={{ static_version }}"></script>
 </body>
 </html>

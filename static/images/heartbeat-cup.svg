@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 370" preserveAspectRatio="none" fill="none">
+  <defs>
+    <linearGradient id="paper" x1="22" y1="190" x2="278" y2="190" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d8d5ca"/><stop offset=".19" stop-color="#fffdf6"/><stop offset=".55" stop-color="#faf8ef"/><stop offset=".86" stop-color="#eeece2"/><stop offset="1" stop-color="#c9c6ba"/>
+    </linearGradient>
+    <linearGradient id="kraft" x1="28" y1="200" x2="272" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ad9067"/><stop offset=".23" stop-color="#ceb38a"/><stop offset=".56" stop-color="#d8bf98"/><stop offset=".85" stop-color="#c4a77c"/><stop offset="1" stop-color="#ad9067"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="150" y1="37" x2="150" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#55534e"/><stop offset=".35" stop-color="#302f2b"/><stop offset=".72" stop-color="#242420"/><stop offset=".83" stop-color="#65625b"/><stop offset="1" stop-color="#33322e"/>
+    </linearGradient>
+    <radialGradient id="top" cx=".38" cy=".2" r=".8">
+      <stop stop-color="#66645d"/><stop offset=".65" stop-color="#45443e"/><stop offset="1" stop-color="#302f2a"/>
+    </radialGradient>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".1"/></feComponentTransfer><feBlend in="SourceGraphic" mode="multiply"/></filter>
+    <clipPath id="sleeve"><path d="M28 123Q150 154 272 123L253 299Q150 334 47 299Z"/></clipPath>
+  </defs>
+  <!-- All circular edges share a shallow view from above. -->
+  <path d="M20 63Q150 98 280 63L248 338Q150 374 52 338Z" fill="url(#paper)" stroke="#cfcabd" stroke-width=".8"/>
+  <path d="M53 335Q150 369 247 335" stroke="#dfdbcf" stroke-width="3"/>
+  <path d="M24 81Q150 111 276 81" stroke="#8b8270" stroke-opacity=".13" stroke-width="6"/>
+  <g clip-path="url(#sleeve)"><path d="M28 123Q150 154 272 123L253 299Q150 334 47 299Z" fill="url(#kraft)" filter="url(#grain)"/></g>
+  <path d="M28 123Q150 154 272 123" stroke="#a58b64" stroke-opacity=".45"/>
+  <path d="M47 299Q150 334 253 299" stroke="#93774f" stroke-opacity=".3"/>
+  <!-- Thin snap-on rim beneath a raised, elliptical drinking lid. -->
+  <path d="M5 48C5 8 295 8 295 48V59C295 100 5 100 5 59Z" fill="url(#rim)"/>
+  <ellipse cx="150" cy="48" rx="145" ry="31" fill="#4d4b45" stroke="#77746c" stroke-width="1.2"/>
+  <path d="M16 40C16 5 284 5 284 40L289 51C289 88 11 88 11 51Z" fill="url(#rim)"/>
+  <ellipse cx="150" cy="39" rx="134" ry="28" fill="url(#top)" stroke="#868177" stroke-width="1"/>
+  <ellipse cx="150" cy="39" rx="121" ry="22" stroke="#24241f" stroke-width="2"/>
+  <path d="M31 40C38 12 261 12 270 40" stroke="#aaa597" stroke-opacity=".3"/>
+  <path d="M9 62C40 90 260 90 291 62" stroke="#a6a194" stroke-opacity=".35"/>
+</svg>

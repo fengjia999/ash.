@@ -1,0 +1,546 @@
+/* A quiet letter collection, scoped to the memory page and its editors. */
+@font-face {
+    font-family: 'Memory Hand';
+    src: url('/static/fonts/caveat-500.woff2') format('woff2');
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+}
+
+#section-standing {
+    --paper-base: #fffdf7;
+    --paper-warm: #f4f3ee;
+    --paper-aged: #eeece3;
+    --paper-crease: #d4d1c5;
+    --ink-deep: #48473f;
+    --ink-mid: #55544b;
+    --ink-soft: #616056;
+    --ink-faint: #727166;
+    --border: #b8b5a8;
+    --border-light: #dedbd0;
+    --rust: #6b6953;
+    --rust-mid: #555340;
+    --rust-pale: #f4edcf;
+    --shadow-paper: 0 3px 12px rgba(76, 72, 51, .05);
+    --shadow-lift: 0 6px 20px rgba(76, 72, 51, .08);
+    background: var(--paper-warm);
+}
+
+
+#section-standing { padding: 0 0 56px; }
+#section-standing .section-header {
+    min-height: 0;
+    margin: 0 0 28px;
+    padding: 0 0 22px;
+    gap: 16px;
+    overflow: visible;
+    align-items: flex-end;
+    border-bottom: 1px solid #dedbd0;
+}
+#section-standing .section-header::before,
+#section-standing .section-header::after,
+#section-standing .standing-view-switch::before,
+#section-standing .standing-memory-toolbar::after { content: none; }
+#section-standing .section-header h1 {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: #6b6953;
+    font: 500 25px/1.3 'Memory Hand', 'Segoe Print', 'Bradley Hand', cursive;
+    letter-spacing: .01em;
+    text-shadow: none;
+    box-shadow: none;
+    clip-path: none;
+    filter: none;
+    transform: none;
+}
+#section-standing .section-title-lockup p {
+    margin: 7px 0 0;
+    color: #727166;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: .06em;
+}
+#section-standing .section-count {
+    position: static;
+    max-width: 100%;
+    padding: 0;
+    background: transparent;
+    color: #727166;
+    font: 11px/1.6 var(--font-ui);
+    transform: none;
+}
+#section-standing .standing-view-switch {
+    margin: 0 0 26px;
+    padding: 4px;
+    gap: 4px;
+    border: 1px solid #dedbd0;
+    border-radius: 6px;
+    background: #eeede7;
+    transform: none;
+}
+#section-standing .standing-view-switch button {
+    min-width: 100px;
+    min-height: 40px;
+    padding: 8px 18px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #727166;
+    font-weight: 500;
+    clip-path: none;
+    transform: none;
+    box-shadow: none;
+}
+#section-standing .standing-view-switch button:hover { background: #e5e3d8; }
+#section-standing .standing-view-switch button:first-of-type,
+#section-standing .standing-view-switch button:last-child { clip-path: none; }
+#section-standing .standing-view-switch button.active {
+    background: #fffdf7;
+    color: #48473f;
+    box-shadow: 0 1px 4px rgba(76, 72, 51, .07);
+    transform: none;
+}
+#section-standing .standing-memory-toolbar {
+    min-height: 48px;
+    padding: 0;
+    background: transparent;
+    color: #48473f;
+    clip-path: none;
+}
+#section-standing .standing-memory-toolbar h3 { color: #55544b; font-size: 14px; font-weight: 500; letter-spacing: 0; }
+#section-standing .standing-memory-heading span { color: #727166; }
+#section-standing .standing-add-memory,
+#section-standing .standing-memory-toolbar .long-term-select-toggle {
+    min-height: 40px;
+    padding: 8px 13px;
+    border: 1px solid #d8cfac;
+    border-radius: 5px;
+    background: #f6edcb;
+    color: #555340;
+    font-weight: 500;
+    box-shadow: 0 2px 4px rgba(76, 72, 51, .04);
+    clip-path: none;
+    transform: none;
+}
+#section-standing .standing-add-memory:hover,
+#section-standing .standing-memory-toolbar .long-term-select-toggle:hover,
+#section-standing .standing-memory-toolbar .long-term-select-toggle.active { background: #eee2b8; color: #48473f; border-color: #c9bd91; box-shadow: none; }
+#section-standing .standing-memory-toolbar .long-term-diary-action {
+    min-height: 40px;
+    border: 0;
+    color: #616056;
+    font-weight: 400;
+}
+#section-standing .standing-memory-toolbar .long-term-diary-action:hover { background: #eeece3; color: #48473f; }
+
+#section-standing .kelivo-memory-list { gap: 30px; }
+#section-standing .memory-zone {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px;
+}
+#section-standing .memory-zone + .memory-zone { margin-top: 10px; padding-top: 28px; border-top: 1px solid #dedbd0; }
+#section-standing .memory-zone-head {
+    grid-column: 1 / -1;
+    min-height: 36px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: #616056;
+    clip-path: none;
+}
+#section-standing .memory-zone-head h3 { color: #616056; font-size: 13px; font-weight: 500; letter-spacing: .04em; }
+#section-standing .memory-zone-head > span,
+#section-standing .memory-zone-head .flow-window-control,
+#section-standing .memory-zone-head .flow-window-control span { color: #727166; }
+#section-standing .flow-window-control input,
+#section-standing .flow-window-control button {
+    min-height: 32px;
+    border: 1px solid #d4d1c5;
+    border-radius: 4px;
+    background: #fffdf7;
+    color: #55544b;
+    font-weight: 400;
+}
+
+/* The open back flap, tucked paper and front folds form separate layers. */
+#section-standing .kelivo-memory-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: space-between;
+    min-height: 266px;
+    gap: 12px;
+    padding: 44px 20px 56px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: #55544b;
+    box-shadow: none;
+    clip-path: none;
+    filter: drop-shadow(0 5px 5px rgba(76, 72, 51, .09));
+    isolation: isolate;
+    transition: transform 160ms ease, box-shadow 160ms ease;
+}
+#section-standing .kelivo-memory-card:hover {
+    transform: translateY(-2px);
+    box-shadow: none;
+}
+#section-standing .kelivo-memory-card::before {
+    content: '';
+    inset: 0 0 auto;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: linear-gradient(150deg, #f1e9cd, #e8dec0);
+    clip-path: polygon(0 38%, 45% 3%, 50% 0, 55% 3%, 100% 38%, 100% 100%, 0 100%);
+    pointer-events: none;
+    z-index: -1;
+}
+#section-standing .kelivo-memory-card::after {
+    inset: auto 0 0;
+    width: 100%;
+    height: 128px;
+    border: 1px solid #dcd2b4;
+    border-radius: 0 0 3px 3px;
+    background: linear-gradient(151deg, transparent 49.6%, #d8ceb0 50%, #eee3c3 50.5%) left bottom / 50% 100% no-repeat,
+                linear-gradient(209deg, transparent 49.6%, #d8ceb0 50%, #eee3c3 50.5%) right bottom / 50% 100% no-repeat,
+                linear-gradient(#f4ebd0, #eee3c3);
+    clip-path: polygon(0 0, 50% 60%, 100% 0, 100% 100%, 0 100%);
+    transform: none;
+    pointer-events: none;
+    z-index: 1;
+}
+#section-standing .memory-letter-number {
+    position: absolute;
+    bottom: 22px;
+    left: 20px;
+    z-index: 2;
+    color: #7c735c;
+    font: 11px/1 var(--font-mono);
+    letter-spacing: .1em;
+}
+#section-standing .memory-letter-paper {
+    min-width: 0;
+    min-height: 166px;
+    padding: 17px 18px 45px;
+    background: #fffdf7;
+    border: 1px solid #e4e0d2;
+    border-radius: 2px;
+    box-shadow: 0 2px 5px rgba(76, 72, 51, .04);
+}
+#section-standing .memory-letter-read {
+    display: block;
+    width: 100%;
+    min-height: 70px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+#section-standing .memory-letter-read::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+}
+#section-standing .kelivo-memory-content {
+    color: #55544b;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.9;
+    padding-right: 0;
+    -webkit-line-clamp: 2;
+}
+#section-standing .kelivo-memory-timeline-meta {
+    margin: 0 0 7px;
+    padding: 0 0 7px;
+    border-bottom: 1px solid #e9e5d9;
+    color: #727166;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+}
+#section-standing .kelivo-memory-timeline-meta strong { color: #616056; font-size: 11px; font-weight: 500; letter-spacing: 0; }
+#section-standing .kelivo-memory-timeline-meta time {
+    position: absolute;
+    bottom: 20px;
+    left: 52px;
+    z-index: 2;
+    color: #7c735c;
+    font-size: 10px;
+    pointer-events: none;
+}
+#section-standing .kelivo-memory-actions { position: absolute; right: 14px; bottom: 10px; z-index: 3; gap: 6px; }
+#section-standing .kelivo-memory-card .kelivo-icon-btn,
+#section-standing .kelivo-icon-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #616056;
+}
+#section-standing .kelivo-memory-card :is(.kelivo-icon-btn.delete, .kelivo-icon-btn.promote) { color: #616056; }
+#section-standing .kelivo-memory-card .kelivo-icon-btn:hover,
+#section-standing .kelivo-icon-btn:hover,
+#section-standing .kelivo-icon-btn.delete:hover,
+#section-standing .kelivo-icon-btn.promote:hover { color: #48473f; background: #e5d9b6; border-color: #d3c7a4; }
+#section-standing .standing-empty {
+    grid-column: 1 / -1;
+    padding: 28px;
+    border: 1px dashed #d4d1c5;
+    border-radius: 3px;
+    background: #faf8f0;
+    color: #727166;
+    font: 13px/1.8 var(--font-ui);
+}
+
+#section-standing .standing-pending { padding: 16px; border: 1px solid #dedbd0; border-radius: 4px; background: #faf8f0; box-shadow: none; }
+#section-standing .standing-list-title { margin: 0 0 12px; padding: 0; background: transparent; }
+#section-standing .standing-list-title :is(h3, span, .credential-help) { color: #616056; }
+#section-standing .standing-list { padding: 0; }
+#section-standing .pending-memory-card { border-color: #dedbd0; background: #fffdf7; box-shadow: none; }
+#section-standing .pending-diff-removed { color: #72665b; background: #eee9e0; }
+#section-standing .pending-diff-added { background: #f5edcd; }
+#section-standing .long-term-memory-list { max-width: none; gap: 16px; }
+#section-standing .long-term-memory-card {
+    min-height: 112px;
+    padding: 14px 16px;
+    border: 1px solid #dedbd0;
+    border-radius: 3px;
+    background: #fffdf7;
+    color: #55544b;
+    box-shadow: 0 3px 10px rgba(76, 72, 51, .04);
+    clip-path: none;
+    filter: none;
+}
+#section-standing .long-term-memory-card.is-selected { border-color: #bdb08b; background: #f6edcb; }
+#section-standing .long-term-memory-main:hover { background: #f6f3e9; }
+#section-standing .long-term-memory-date { border-right: 1px solid #dedbd0; }
+#section-standing .long-term-memory-date strong { font: 500 26px/1 'Memory Hand', cursive; color: #616056; }
+#section-standing .long-term-memory-title { font-size: 15px; font-weight: 500; }
+#section-standing .long-term-memory-card > .kelivo-icon-btn { opacity: 1; }
+
+/* Open letters keep their paper palette, including diary and keyword editors. */
+body:has(#section-standing.active) .memory-editor-backdrop { background: rgba(82, 80, 67, .24); backdrop-filter: blur(3px); }
+body:has(#section-standing.active) .memory-editor-dialog { border-radius: 5px; border-color: #d4d1c5; background: #fffdf7; box-shadow: 0 18px 60px rgba(76, 72, 51, .16); }
+body:has(#section-standing.active) .memory-editor-head { min-height: 62px; border-bottom: 1px solid #e4e0d2; margin-bottom: 16px; }
+body:has(#section-standing.active) .memory-editor-head h3 { font-weight: 500; color: #616056; }
+body:has(#section-standing.active) .memory-editor-body .textarea { background: #fffdf7; border-color: #dedbd0; color: #55544b; line-height: 1.9; box-shadow: none; }
+body:has(#section-standing.active) .memory-editor-close { color: #616056; }
+body:has(#section-standing.active) .memory-editor-close:hover { background: #eeece3; }
+body:has(#section-standing.active) .memory-editor-actions { border-top: 1px solid #e4e0d2; padding-top: 16px; }
+body:has(#section-standing.active) :is(#section-standing, .diary-editor) .btn:not(:where(.fragment-page *)) { border-radius: 4px; box-shadow: none; transform: none; }
+body:has(#section-standing.active) :is(#section-standing, .diary-editor) .btn-primary:not(:where(.fragment-page *)) { background: #f6edcb; border-color: #d8cfac; color: #555340; }
+body:has(#section-standing.active) :is(#section-standing, .diary-editor) .btn-primary:hover:not(:where(.fragment-page *)) { background: #eee2b8; }
+body:has(#section-standing.active) :is(#section-standing, .diary-editor) .btn-secondary:not(:where(.fragment-page *)) { background: #fffdf7; border-color: #d4d1c5; color: #616056; }
+body:has(#section-standing.active) #section-standing .btn-danger:not(:where(.fragment-page *)) { color: #805e51; background: #f1e7e1; border-color: #ddc9bf; }
+body:has(#section-standing.active) :is(#section-standing, .diary-editor) :focus-visible:not(:where(.fragment-page *)) { outline: 2px solid #8c896d; outline-offset: 3px; }
+
+/* The sheet and keycaps use the same ink and paper as the archive. */
+#memory-editor-modal {
+    --case: color-mix(in srgb, var(--paper) 84%, var(--ink));
+    --case-edge: color-mix(in srgb, var(--case) 73%, var(--frame));
+    --platen: #363836;
+}
+body:has(#section-standing.active) #memory-editor-modal .memory-editor-backdrop {
+    background: rgb(35 37 35 / .27);
+    backdrop-filter: blur(2px);
+}
+body:has(#section-standing.active) .memory-typewriter-dialog {
+    width: min(660px, 100%);
+    max-height: calc(100dvh - 48px);
+    overflow: auto;
+    padding: 6px 26px 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    scrollbar-width: thin;
+}
+.memory-typewriter-sheet {
+    position: relative;
+    z-index: 1;
+    margin: 0 12px;
+    border: 1px solid var(--frame);
+    border-radius: 2px 2px 0 0;
+    color: var(--ink);
+    background: linear-gradient(to top, var(--case), transparent 16px), var(--paper);
+    box-shadow: 0 4px 12px rgb(24 26 24 / .09);
+}
+body:has(#section-standing.active) .memory-typewriter-sheet .memory-editor-head {
+    min-height: 58px;
+    margin: 0 22px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--ink);
+}
+body:has(#section-standing.active) .memory-typewriter-sheet .memory-editor-head h3 {
+    color: var(--ink);
+    font: 500 22px/1.25 var(--serif);
+    letter-spacing: .04em;
+}
+body:has(#section-standing.active) .memory-typewriter-sheet .memory-editor-close { color: var(--muted); }
+body:has(#section-standing.active) .memory-typewriter-sheet .memory-editor-close:hover { background: var(--case); }
+.memory-typewriter-sheet .memory-editor-body { padding: 18px 22px 38px; }
+body:has(#section-standing.active) .memory-typewriter-sheet .textarea {
+    min-height: 240px;
+    height: min(42dvh, 360px);
+    max-height: min(48dvh, 420px);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--ink);
+    caret-color: var(--blue);
+    font: 400 16px/1.85 var(--serif);
+    resize: vertical;
+}
+body:has(#section-standing.active) .memory-typewriter-sheet .textarea:focus { outline: none; box-shadow: none; }
+.memory-typewriter-sheet:focus-within { border-color: var(--ink); }
+.memory-typewriter-machine {
+    position: relative;
+    z-index: 2;
+    margin: -8px -18px 8px;
+    padding: 32px 24px 15px;
+    border: 1px solid var(--frame);
+    border-radius: 9px 9px 6px 6px;
+    background: linear-gradient(to bottom, var(--case-edge), var(--case) 18px, var(--case) 91%, var(--case-edge));
+    box-shadow: inset 0 1px var(--paper), inset 0 -2px var(--case-edge), 0 5px 10px rgb(24 26 24 / .15);
+}
+.memory-typewriter-roller {
+    position: absolute;
+    inset: 8px 24px auto;
+    height: 16px;
+    border: 1px solid #282a28;
+    border-radius: 5px;
+    background: linear-gradient(#61645e, var(--platen) 45%, #292b29);
+}
+.memory-typewriter-roller span {
+    position: absolute;
+    inset: 4px 14px auto;
+    height: 1px;
+    background: #999d97;
+}
+.memory-typewriter-roller::before, .memory-typewriter-roller::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    width: 14px;
+    height: 22px;
+    border: 1px solid #363836;
+    border-radius: 4px;
+    background: repeating-linear-gradient(90deg, var(--platen) 0 2px, #71746e 2px 3px);
+}
+.memory-typewriter-roller::before { left: -32px; }
+.memory-typewriter-roller::after { right: -32px; }
+.memory-typewriter-scale {
+    position: relative;
+    height: 7px;
+    border-top: 1px solid var(--frame);
+    background: repeating-linear-gradient(90deg, var(--frame) 0 1px, transparent 1px 20px),
+                repeating-linear-gradient(90deg, var(--frame) 0 1px, transparent 1px 4px) left top / 100% 3px no-repeat;
+}
+.memory-typewriter-scale::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -3px;
+    border-inline: 4px solid transparent;
+    border-bottom: 7px solid var(--blue);
+}
+body:has(#section-standing.active) .memory-typewriter-machine .memory-editor-actions {
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 0;
+    border: 0;
+}
+#memory-editor-modal .memory-typewriter-machine .btn {
+    flex: 0 1 88px;
+    min-width: 76px;
+    min-height: 42px;
+    padding: 4px 16px;
+    border: 1px solid var(--frame);
+    border-radius: 5px;
+    background: var(--paper);
+    color: var(--ink);
+    box-shadow: 0 2px var(--frame);
+    font: 500 15px var(--serif);
+}
+#memory-editor-modal .memory-typewriter-machine .btn-primary {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: var(--paper);
+}
+#memory-editor-modal .memory-typewriter-machine .btn:active:not(:disabled) {
+    transform: translateY(2px);
+    box-shadow: none;
+}
+#memory-editor-modal button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+body:has(#section-standing.active) #memory-editor-modal.open .memory-typewriter-sheet { animation: memory-paper-emerge 260ms ease-out; }
+@keyframes memory-paper-emerge {
+    from { transform: translateY(16px); opacity: .6; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+@media (max-width: 1000px) {
+    #section-standing .memory-zone { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+        #section-standing .section-header { padding: 0 0 18px; margin: 0 0 22px; gap: 12px; flex-direction: column; align-items: flex-start; }
+    #section-standing .section-header h1 { font-size: 23px; }
+    #section-standing .standing-view-switch { width: fit-content; margin-left: 0; }
+    #section-standing .standing-memory-toolbar { padding: 0; gap: 12px; }
+    #section-standing .memory-zone-head { gap: 12px; }
+    #section-standing .kelivo-memory-card { padding: 40px 16px 56px; }
+    #section-standing .kelivo-memory-timeline-meta { flex-direction: column; }
+    #section-standing .kelivo-memory-content { font-size: 14px; }
+    #section-standing .long-term-memory-card { padding: 10px; }
+    #section-standing .long-term-memory-main { gap: 10px; grid-template-columns: 44px minmax(0, 1fr); }
+    #section-standing .long-term-create-actions { flex-wrap: wrap; }
+    body:has(#section-standing.active) #memory-editor-modal { padding: 12px; }
+    body:has(#section-standing.active) .memory-typewriter-dialog { padding: 4px 16px 0; max-height: calc(100dvh - 24px); }
+    .memory-typewriter-sheet { margin: 0 3px; }
+    .memory-typewriter-sheet .memory-editor-body { padding: 16px 15px 32px; }
+    body:has(#section-standing.active) .memory-typewriter-sheet .memory-editor-head { margin-inline: 15px; }
+    body:has(#section-standing.active) .memory-typewriter-sheet .textarea { min-height: 160px; height: 38dvh; max-height: 44dvh; }
+    .memory-typewriter-machine { margin-inline: -9px; padding-inline: 16px; }
+    .memory-typewriter-roller { inset-inline: 16px; }
+    .memory-typewriter-roller::before { left: -23px; }
+    .memory-typewriter-roller::after { right: -23px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #section-standing .kelivo-memory-card { transition: none; }
+    #section-standing .kelivo-memory-card:hover { transform: none; }
+    body:has(#section-standing.active) #memory-editor-modal.open .memory-typewriter-sheet { animation: none; }
+}
+
+/* Only the keyboard viewport constrains the existing editor's paper. */
+body.phone-viewport-active:has(#section-standing.active) #memory-editor-modal .memory-typewriter-dialog {
+    display: flex; flex-direction: column; max-height: 100%; overflow: hidden;
+}
+body.phone-viewport-active:has(#section-standing.active) #memory-editor-modal .memory-typewriter-sheet {
+    display: flex; flex-direction: column; min-height: 0; flex: 1;
+}
+body.phone-viewport-active:has(#section-standing.active) #memory-editor-modal .memory-editor-head,
+body.phone-viewport-active:has(#section-standing.active) #memory-editor-modal .memory-typewriter-machine {
+    flex-shrink: 0;
+}
+body.phone-viewport-active:has(#section-standing.active) #memory-editor-modal .memory-editor-body {
+    display: flex; flex-direction: column; min-height: 0; flex: 1;
+}
+body.phone-viewport-active:has(#section-standing.active) #memory-editor-modal .textarea {
+    min-height: 0; flex: 1; overflow-y: auto; resize: none;
+}
+
+/* Keep editor scrolling inside the paper instead of chaining to the list. */
+#memory-editor-modal .memory-typewriter-dialog,
+#memory-editor-modal #memory-editor-content { overscroll-behavior: none; }
+#memory-editor-modal #memory-editor-content { -webkit-overflow-scrolling: touch; }
+#memory-editor-modal .memory-editor-backdrop,
+#memory-editor-modal .memory-editor-head,
+#memory-editor-modal .memory-typewriter-machine { touch-action: none; }

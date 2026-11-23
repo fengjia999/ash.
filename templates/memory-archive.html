@@ -1,0 +1,102 @@
+<div class="fragment-page">
+<div class="inner">
+
+<div class="top">
+  <i class="rule" data-rule></i>
+  <div class="topline" data-rise>
+    <button class="back memory-back" type="button" onclick="AshPhone.back()"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><path d="M16 5H1M5 1 1 5l4 4"/></svg>返回</button>
+    <span>ASH / MEMORY ARCHIVE</span>
+  </div>
+  <div class="lockup">
+    <div class="name" data-rise>
+      <span class="br l" aria-hidden="true">[</span>
+      <h1><span>MEMORY</span><span>FRAGMENTS —</span></h1>
+      <p>记忆库 <i>*</i></p>
+      <span class="br r" aria-hidden="true">]</span>
+    </div>
+    <div class="marg" data-rise>MEMORY<br>ARCHIVE<i>What stays<br>with me.</i><b data-node></b></div>
+  </div>
+  <p class="lead" data-rise>记住的未必是大事，只是以后仍想带在身边的片刻。</p>
+  <svg class="arc" viewBox="0 0 190 270" aria-hidden="true"><ellipse class="flow" data-wipe cx="95" cy="135" rx="94" ry="134"/></svg>
+</div>
+
+<div class="archive-tabs" role="tablist" aria-label="记忆分区">
+  <button class="archive-tab" type="button" role="tab" data-view="fragments" id="archive-tab-fragments" aria-controls="fragment-pane" aria-selected="true"><small>01 / PIECES</small><span>片段<i></i></span></button>
+  <button class="archive-tab" type="button" role="tab" data-view="fixed" id="archive-tab-fixed" aria-controls="archive-fixed" aria-selected="false" tabindex="-1"><small>02 / STANDING</small><span>固定<i></i></span></button>
+  <button class="archive-tab" type="button" role="tab" data-view="flow" id="archive-tab-flow" aria-controls="archive-flow" aria-selected="false" tabindex="-1"><small>03 / RECENT</small><span>流动<i></i></span></button>
+  <i class="tabs-rule" data-rule></i>
+  <i class="tab-ink"></i>
+</div>
+
+<div id="standing-msg" role="status"></div>
+<!-- 01 PIECES -->
+<section class="archive-panel" id="fragment-pane" role="tabpanel" aria-labelledby="archive-tab-fragments">
+  <figure class="fig" style="margin-bottom:0">
+    <svg id="dande" viewBox="0 0 390 270" role="img" aria-label="一朵蒲公英，每颗种子代表一段记忆，亮起来的种子已经写下"></svg>
+    <figcaption data-rise>FIG. 01 / 蒲公英<i>一颗种子，<br>一段记忆。</i></figcaption>
+  </figure>
+  <div class="tools" data-rise>
+    <label><span>SEARCH /</span><input id="fragment-query" type="search" placeholder="找一段记忆…" autocomplete="off" aria-label="搜索记忆"></label>
+    <button class="write" type="button" id="fragment-compose" onclick="openFragmentEditor()">+ 写下片刻</button>
+  </div>
+  <div class="chips" id="fragment-filters" role="group" aria-label="筛选记忆片段" data-rise>
+    {% for category in ['全部','情绪','里程碑','日常','计划'] %}<button class="chip" type="button" aria-pressed="{{ 'true' if loop.first else 'false' }}" onclick="selectFragmentCategory(this)">{{ category }}</button>{% endfor %}
+    <label class="importance-chip">
+      <select id="fragment-importance" aria-label="按重要度上限筛选">
+        <option value="">重要度 · 全部</option>
+        {% for score in range(1, 10) %}<option value="{{ score }}">重要度 ≤ {{ score }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+  <div class="listhead"><span class="count" id="archive-fragment-count" data-rise></span><span class="count" data-rise>INDEX</span></div>
+  <div class="list">
+    <i class="spine" data-wipe></i>
+    <div id="fragment-entries" aria-live="polite"></div>
+    <p class="empty" id="fragment-empty" hidden>这个分类下，还没有片刻。</p>
+  </div>
+  <button class="textbtn" id="fragment-more" type="button" hidden onclick="loadFragmentPage(true)">更早的记忆 ↓</button>
+</section>
+
+<!-- 02 STANDING -->
+<section class="archive-panel" id="archive-fixed" role="tabpanel" aria-labelledby="archive-tab-fixed" hidden>
+  <p class="lead" data-rise style="margin-bottom:14px">有些事不该随时间滚动。它们被放在这里，作为长期不变的底色。</p>
+  <div id="standing-pending-section" hidden>
+    <p class="count">待确认 · <span id="standing-pending-count"></span></p>
+    <div id="standing-pending-list"></div>
+  </div>
+  <div id="standing-active-list"></div>
+</section>
+
+<!-- 03 RECENT -->
+<section class="archive-panel" id="archive-flow" role="tabpanel" aria-labelledby="archive-tab-flow" hidden>
+  <p class="lead" data-rise style="margin-bottom:14px">最近的对话在这里继续流动，等候被整理成更完整的记忆。</p>
+  <p class="count" data-rise>FLOW / 流动区</p>
+  <div class="stream" style="margin-top:12px">
+    <div class="keeprow" data-rise>
+      <span id="archive-flow-count"></span>
+      <label for="flowMemoryMaxItems">保留最近</label>
+      <input id="flowMemoryMaxItems" type="number" inputmode="numeric" min="1" max="100" disabled>
+      <span>条</span>
+      <button class="save" type="button" id="archive-flow-save" disabled onclick="saveFlowMemoryMaxItems(event)">保存</button>
+    </div>
+  </div>
+  <svg class="river" viewBox="0 0 350 150" role="img" aria-label="一条缓缓流动的线，上面有一个蓝点">
+    <path class="sd" data-draw pathLength="1" d="M0 96C42 40 84 40 120 82S196 130 238 82S310 36 350 70"/>
+    <path class="sd flow" data-wipe d="M0 112C42 56 84 56 120 98S196 146 238 98S310 52 350 86" style="stroke-dasharray:2 5"/>
+    <circle id="flowdot" cx="0" cy="96" r="4" data-node/>
+  </svg>
+  <div id="archive-flow-list"></div>
+</section>
+
+<div class="foot">
+  <span class="count">ASH / MEMORY ARCHIVE</span>
+  <button class="archive-replay" type="button" id="archive-replay">↻ REPLAY ENTRY</button>
+</div>
+
+</div>
+
+<div class="tides" aria-hidden="true">
+  <div class="tide back"><svg class="wv" viewBox="0 0 780 60" preserveAspectRatio="none"><path d="M0 30Q97.5 4 195 30T390 30T585 30T780 30V60H0Z"/></svg><div class="tb"></div></div>
+  <div class="tide front"><svg class="wv" viewBox="0 0 780 60" preserveAspectRatio="none"><path d="M0 30Q97.5 4 195 30T390 30T585 30T780 30V60H0Z"/></svg><div class="tb"></div></div>
+</div>
+</div>

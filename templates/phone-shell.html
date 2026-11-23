@@ -1,0 +1,117 @@
+<header class="phone-app-header" id="phone-app-header" hidden>
+    <button type="button" class="phone-icon-button" id="phone-back" aria-label="返回主屏幕"><span data-phone-icon="back"></span></button>
+    <h1 id="phone-app-title">Chat</h1>
+    <div class="phone-header-actions">
+        <button type="button" class="phone-icon-button" id="phone-supplier-add" aria-label="添加供应商" hidden><span data-phone-icon="plus"></span></button>
+        <button type="button" class="phone-icon-button" id="phone-header-action" aria-label="新建会话" hidden><span data-phone-icon="plus"></span></button>
+        <div class="phone-diary-tools" id="phone-diary-tools" hidden>
+            <button type="button" class="phone-icon-button" onclick="newNotebookDiary()" aria-label="写日记"><span data-phone-icon="plus"></span></button>
+            <button type="button" id="diary-notebook-manage-toggle" aria-expanded="false" onclick="toggleDiaryNotebookManagement()">整理</button>
+        </div>
+    </div>
+</header>
+<template id="phone-home-template">
+    <section id="section-home" class="section active phone-home-host" aria-label="主屏幕">
+<div class="page active" id="page-phone">
+            <div class="phone-home" id="phone-home" data-wallpaper="dawn">
+                <div class="phone-wallpaper" id="phone-wallpaper" aria-hidden="true"></div>
+
+                <main class="phone-home-content">
+                    <div class="phone-status-bar">
+                        <time id="phone-status-time" aria-label="当前时间"></time>
+                        <span class="phone-status-name">ASH</span>
+                        <span class="phone-status-symbols" aria-hidden="true"><svg viewBox="0 0 36 16" fill="currentColor"><rect x="1" y="10" width="3" height="5" rx="1"/><rect x="6" y="7" width="3" height="8" rx="1"/><rect x="11" y="4" width="3" height="11" rx="1"/><rect x="16" y="1" width="3" height="14" rx="1"/><path d="M23 5a9 9 0 0 1 12 0l-1.5 1.5a7 7 0 0 0-9 0Zm3 3a5 5 0 0 1 6 0l-1.5 1.5a3 3 0 0 0-3 0ZM28 11a1.5 1.5 0 1 1 2 2Z"/></svg></span>
+                    </div>
+                    <header class="phone-desktop-toolbar">
+                        <div class="phone-home-actions" id="phone-home-actions" hidden>
+                            <button class="phone-edit-toggle" id="btn-phone-widgets" type="button">＋ 组件</button>
+                            <button class="phone-edit-toggle" id="btn-phone-edit" type="button" aria-pressed="false" aria-haspopup="dialog" aria-controls="phone-customize">整理</button>
+                        </div>
+                    </header>
+                    <div class="phone-pages" id="phone-pages" aria-label="桌面页面" tabindex="0"></div>
+                    <div class="phone-page-navigation">
+                        <button type="button" id="phone-prev-page" aria-label="上一页">‹</button>
+                        <nav id="phone-page-dots" aria-label="切换桌面"></nav>
+                        <button type="button" id="phone-next-page" aria-label="下一页">›</button>
+                        <button type="button" id="phone-add-page" aria-label="添加桌面页">＋</button>
+                    </div>
+                    <div class="phone-move-bar" id="phone-move-bar" hidden>
+                        <span id="phone-selection-label">点选应用或组件</span>
+                        <select id="phone-move-page" aria-label="移动到页面"></select>
+                        <button type="button" id="phone-move-item">移动</button>
+                        <button type="button" id="phone-manage-pages">管理</button>
+                    </div>
+                </main>
+
+                <footer class="phone-dock" aria-label="常用应用"></footer>
+
+                <section class="phone-customize" id="phone-customize" aria-hidden="true" inert>
+                    <div class="phone-customize-sheet" role="dialog" aria-modal="true" aria-labelledby="phone-customize-title">
+                        <header><button id="btn-phone-customize-close" type="button" aria-label="返回桌面">×</button><h2 id="phone-customize-title">桌面外观</h2><button id="btn-phone-customize-preview" type="button" aria-label="预览桌面" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7m0-7-8 8M10 21H3v-7m0 7 8-8"/></svg></button></header>
+                        <nav class="phone-theme-tabs" aria-label="桌面设置分类">
+                            <button type="button" data-phone-tab="wallpaper">壁纸</button>
+                            <button type="button" data-phone-tab="icons">图标</button>
+                            <button type="button" data-phone-tab="widgets">组件</button>
+                            <button type="button" data-phone-tab="pages">页面</button>
+                        </nav>
+                        <div id="phone-customize-content"></div>
+                        <p id="phone-customize-status" role="status"></p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </section>
+    <section id="section-chat" class="section phone-chat-hub" aria-label="Chat">
+        <div class="phone-chat-panels">
+            <div class="phone-chat-panel" data-chat-panel="chat">
+                <button type="button" class="phone-assistant-card" id="phone-open-chat"><span class="phone-avatar large" data-local-avatar="assistant"></span><span><strong data-local-name="assistant">Ash</strong><small id="phone-active-conversation"></small></span><span class="phone-online-dot" title="助手"></span></button>
+                <button type="button" class="phone-chat-usage" id="phone-chat-usage"><span class="phone-usage-title">今日用量</span><strong id="phone-usage-total">—<small> tokens</small></strong><div class="phone-mini-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span id="phone-usage-description"></span></button>
+            </div>
+            <div class="phone-chat-panel" data-chat-panel="conversations" hidden>
+                <div class="phone-conversation-printer">
+                    <div class="phone-printer-controls">
+                        <button type="button" class="phone-printer-current" id="phone-printer-current" aria-label="打开当前会话" disabled><small>当前会话</small><strong id="phone-printer-name">正在加载…</strong></button>
+                        <button type="button" class="phone-printer-feed" id="phone-printer-feed" aria-label="收起会话纸条" aria-expanded="true" aria-controls="phone-conversation-list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v8M6.3 5.8a8 8 0 1 0 11.4 0"/></svg></button>
+                    </div>
+                </div>
+                <div id="phone-conversation-list" class="phone-conversation-paper" aria-live="polite"></div>
+            </div>
+            <div class="phone-chat-panel phone-noteboard" data-chat-panel="cover" hidden>
+                <div class="phone-note-toolbar"><button type="button" id="phone-note-arrange">整理</button><button type="button" id="phone-note-add" aria-label="新增便签"><span data-phone-icon="plus"></span></button></div>
+                <p id="phone-note-status" role="status"></p>
+                <button type="button" id="phone-note-retry" hidden>重试</button>
+                <div id="phone-note-surface" aria-label="便签墙"><div id="phone-notes-layer"></div><p id="phone-note-empty" hidden>还没有便签</p></div>
+            </div>
+            <div class="phone-chat-panel phone-me" data-chat-panel="me" hidden>
+                <div class="phone-me-profile"><span class="phone-avatar large" data-local-avatar="user"></span><h2 data-local-name="user">我</h2></div>
+                <button type="button" class="phone-me-config" id="phone-me-config" aria-label="编辑聊天配置">
+                    <span class="phone-me-field"><span>供应商</span><strong id="phone-me-supplier">—</strong><span data-phone-icon="edit"></span></span>
+                    <span class="phone-me-field"><span>路由</span><strong id="phone-me-route">—</strong></span>
+                    <span class="phone-me-field"><span>模型</span><strong id="phone-me-model">—</strong></span>
+                </button>
+                <div class="phone-settings-group phone-me-links"><button type="button" id="phone-me-favorites"><span data-phone-icon="heart"></span><span>收藏</span><span data-phone-icon="chevron"></span></button></div>
+                <p id="phone-me-status" class="phone-local-note" role="status"></p>
+                <button type="button" class="phone-me-retry" id="phone-me-retry" hidden>重试</button>
+            </div>
+        </div>
+        <nav class="phone-chat-tabs" aria-label="Chat 导航"><button type="button" data-chat-tab="chat" aria-current="page"><span data-phone-icon="chat"></span><span>Chat</span></button><button type="button" data-chat-tab="conversations"><span data-phone-icon="conversations"></span><span>Conversation</span></button><button type="button" data-chat-tab="cover"><span data-phone-icon="cover"></span><span>Cover</span></button><button type="button" data-chat-tab="me"><span data-phone-icon="person"></span><span>Me</span></button></nav>
+    </section>
+    <section id="section-favorites" class="section phone-favorites" aria-label="收藏">
+        <div id="phone-favorites-list"></div>
+        <p id="phone-favorites-status" class="phone-local-note" role="status"></p>
+        <button type="button" id="phone-favorites-retry" class="phone-me-retry" hidden>重试</button>
+    </section>
+    <section id="section-preferences" class="section phone-preferences" aria-label="设置">
+        <div class="phone-profile-row"><span class="phone-avatar" data-local-avatar="user"></span><span><strong data-local-name="user">我</strong></span></div>
+        <div class="phone-settings-group"><button type="button" data-phone-app="presets"><span class="phone-setting-icon" data-phone-icon="pen"></span><span>提示词</span><span data-phone-icon="chevron"></span></button><button type="button" id="phone-recall-settings" data-phone-app="recall"><span class="phone-setting-icon" data-phone-icon="memory"></span><span>召回设置</span><span data-phone-icon="chevron"></span></button><button type="button" id="phone-supplier-settings" data-phone-app="suppliers"><span class="phone-setting-icon" data-phone-icon="sliders"></span><span>模型供应商</span><span data-phone-icon="chevron"></span></button></div>
+        <div class="phone-settings-group"><button type="button" data-phone-app="settings"><span class="phone-setting-icon" data-phone-icon="settings"></span><span>其它</span><span data-phone-icon="chevron"></span></button><button type="button" id="phone-backup-settings"><span class="phone-setting-icon" data-phone-icon="archive"></span><span>备份与导入</span><span data-phone-icon="chevron"></span></button></div>
+        <button type="button" class="phone-logout" onclick="logoutDashboard(event)">退出登录</button>
+    </section>
+    <section id="section-phone-transfer" class="section phone-preferences" aria-label="备份与导入"><div class="phone-settings-group"><button type="button" data-phone-app="export"><span data-phone-icon="archive"></span><span>导出 Ash 备份<small>服务端记忆、配置与会话</small></span><span data-phone-icon="chevron"></span></button><button type="button" data-phone-app="import"><span data-phone-icon="plus"></span><span>恢复 Ash 备份<small>预览并导入备份文件</small></span><span data-phone-icon="chevron"></span></button></div><div class="phone-settings-group"><button type="button" id="phone-export-local"><span data-phone-icon="cover"></span><span>导出本机桌面<small>桌面装扮与收藏</small></span><span data-phone-icon="chevron"></span></button><button type="button" id="phone-import-local"><span data-phone-icon="plus"></span><span>导入本机桌面<small>从本地文件恢复</small></span><span data-phone-icon="chevron"></span></button></div><p class="phone-local-note">本机桌面与收藏单独保存，不包含在 Ash 服务端备份中。</p></section>
+</template>
+<div class="phone-avatar-menu" id="phone-avatar-menu" popover="auto" role="group" aria-label="头像"><button type="button" data-avatar-action="reset">恢复</button><button type="button" data-avatar-action="image">图片</button></div>
+<dialog class="phone-sheet" id="phone-personalize"><form method="dialog" class="phone-sheet-heading"><div><h2 id="phone-sheet-title" tabindex="-1" autofocus>桌面装扮</h2></div><button class="phone-icon-button" aria-label="关闭"><span data-phone-icon="close"></span></button></form><div id="phone-sheet-content"></div></dialog>
+<input type="file" id="phone-local-image" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+<input type="file" id="phone-local-backup" accept="application/json,.json" hidden>
+<div class="phone-toast" id="phone-toast" role="status" hidden></div>
+<div class="phone-home-indicator"><button type="button" id="phone-home-button" aria-label="返回主屏幕"></button></div>

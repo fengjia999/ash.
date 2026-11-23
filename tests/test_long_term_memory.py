@@ -1,3 +1,4 @@
+import hashlib
 import json
 import unittest
 from collections import deque
@@ -8,7 +9,7 @@ import database
 import main
 
 
-class LongTermMemoryTests(unittest.TestCase):
+class LongTermMemoryTests(unittest.IsolatedAsyncioTestCase):
     def test_flow_provenance_classifies_existing_rows_as_diaries(self):
         self.assertEqual(
             "diary",
@@ -29,6 +30,49 @@ class LongTermMemoryTests(unittest.TestCase):
                 },
             }),
         )
+
+    async def test_approved_diary_does_not_persist_preview_summary_as_fragment_source(self):
+        conn = MagicMock()
+        conn.transaction.return_value.__aenter__ = AsyncMock()
+        conn.transaction.return_value.__aexit__ = AsyncMock(return_value=False)
+        conn.fetchrow = AsyncMock(side_effect=[
+            {
+                "id": 41,
+                "operation": "create",
+                "target_memory_id": None,
+                "title": "海边",
+                "keywords": ["旅行", "朋友"],
+                "summary": "旅行；朋友",
+                "content": "和朋友去了海边。",
+                "metadata": {"source_command": "diary"},
+                "priority": 0,
+                "enabled": True,
+            },
+            {
+                "id": 12,
+                "title": "海边",
+                "keywords": ["旅行", "朋友"],
+                "summary": "",
+                "content": "和朋友去了海边。",
+                "metadata": {"entry_kind": "diary"},
+            },
+        ])
+        conn.execute = AsyncMock(return_value="DELETE 1")
+        acquire = MagicMock()
+        acquire.__aenter__ = AsyncMock(return_value=conn)
+        acquire.__aexit__ = AsyncMock(return_value=False)
+        pool = MagicMock()
+        pool.acquire.return_value = acquire
+
+        with patch.object(database, "get_pool", AsyncMock(return_value=pool)):
+            result = await database.apply_pending_long_term_memory_operation(41)
+
+        insert = conn.fetchrow.await_args_list[1]
+        self.assertIn("VALUES ($1, $2::jsonb, '', $3", insert.args[0])
+        metadata = json.loads(insert.args[-1])
+        self.assertEqual("diary", metadata["entry_kind"])
+        self.assertEqual("diary", metadata["source_command"])
+        self.assertEqual("create", result["operation"])
 
     def test_long_term_directory_sorts_oldest_date_first(self):
         memories = [
@@ -51,17 +95,16 @@ class LongTermMemoryTests(unittest.TestCase):
 
         self.assertEqual([2, 1], [memory["id"] for memory in ordered])
 
-    def test_unsummarized_promoted_memory_indexes_its_body(self):
+    def test_unsummarized_diary_indexes_its_body(self):
         text = database._long_term_embedding_text({
             "title": "不应参与搜索的旧标题",
             "summary": "",
             "keywords": [],
             "content": "正文中的独特暗号",
-            "metadata": {"entry_kind": "fragment"},
         })
 
         self.assertIn("正文中的独特暗号", text)
-        self.assertNotIn("旧标题", text)
+        self.assertIn("旧标题", text)
 
     def test_diary_search_indexes_body_even_when_a_search_hint_exists(self):
         text = database._long_term_embedding_text({
@@ -79,7 +122,8 @@ class LongTermMemoryTests(unittest.TestCase):
         dashboard = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
         script = (root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
 
-        self.assertIn('data-standing-view="long-term"', dashboard)
+        self.assertIn('id="diary-notebook"', dashboard)
+        self.assertNotIn('data-standing-view="long-term"', dashboard)
         self.assertIn('id="long-term-memory-title"', dashboard)
         self.assertIn('id="long-term-memory-date"', dashboard)
         self.assertIn('id="long-term-memory-summary-preview"', dashboard)
@@ -110,20 +154,29 @@ class LongTermMemoryTests(unittest.TestCase):
         self.assertIn("deleteSelectedLongTermMemories", script)
         self.assertIn('authFetch("/api/diaries/batch-delete"', script)
         self.assertNotIn('authFetch("/api/diaries/summary"', script)
+        routes = {route.path for route in main.app.routes}
+        self.assertNotIn('/api/diaries/summary', routes)
+        self.assertNotIn('/api/long-term-memory/summary', routes)
         self.assertIn('" 篇待关键词"', script)
-        self.assertIn(
-            'input[type="date"]::-webkit-calendar-picker-indicator',
-            (root / "static" / "css" / "dashboard.css").read_text(encoding="utf-8"),
-        )
-        self.assertIn('class="long-term-date-icon"', dashboard)
+        self.assertIn('id="diary-calendar-month-picker"', dashboard)
+        self.assertIn('type="date" aria-label="日期"', dashboard)
         self.assertIn("grid-template-columns: minmax(0, 1fr)", (
             root / "static" / "css" / "dashboard.css"
         ).read_text(encoding="utf-8"))
 
-    def test_ltm_exposes_one_step_fragment_search_and_two_step_diary_tools(self):
+    def test_fragment_view_and_extraction_controls_are_removed(self):
+        dashboard = (Path(__file__).resolve().parents[1] / "templates/dashboard.html").read_text()
+        for element in ("standing-view-fragments", "memory-fragment-editor-modal", "memoryExtractionProvider"):
+            self.assertNotIn('id="' + element + '"', dashboard)
+        self.assertIn("历史召回", dashboard)
+
+    def test_ltm_exposes_diary_tools(self):
         tool_names = {tool["name"] for tool in main.BUILTIN_MEMORY_TOOLS}
         self.assertTrue({
-            "search_memory", "search_diary", "read_diary",
+            "search_diary", "read_diary",
+        }.issubset(tool_names))
+        self.assertTrue({
+            "create_memory", "edit_memory", "delete_memory",
         }.issubset(tool_names))
         self.assertNotIn("read_memory", tool_names)
         self.assertIn("read_memory", main.RETIRED_MODEL_TOOL_NAMES)
@@ -136,8 +189,6 @@ class LongTermMemoryTests(unittest.TestCase):
         )
         self.assertEqual(["id"], read_tool["input_schema"]["required"])
         self.assertNotIn("query", read_tool["input_schema"]["properties"])
-
-
 class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
     async def test_complete_prompt_preview_preserves_section_and_memory_order(self):
         with patch.object(
@@ -155,62 +206,23 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
             preview = await main._build_prompt_splice_preview()
 
         self.assertEqual(
-            ["prompt:identity", "prompt:style", "fixed_memory", "flow_memory"],
+            [
+                "prompt:identity", "prompt:style", "fixed_memory", "flow_memory",
+            ],
             [section["id"] for section in preview["sections"]],
         )
-        self.assertEqual("IDENTITY\n\nSTYLE\n\nFIXED\n\nFLOW", preview["content"])
-
-    async def test_diary_model_creates_long_term_pending_proposal(self):
-        create_pending = AsyncMock(return_value={"id": 51})
-        with patch.object(
-            main,
-            "_call_memory_organizer_model",
-            AsyncMock(return_value=[
-                {
-                    "action": "new",
-                    "title": "今天的日记",
-                    "keywords": ["心情", "进展"],
-                    "content": "今天完成了一次重要调整。",
-                },
-                {"action": "ignore"},
-            ]),
-        ), patch.object(
-            main,
-            "create_pending_long_term_memory_operation",
-            create_pending,
-        ):
-            created = await main._create_recent_diary_long_term_drafts([
-                {"role": "user", "content": "最近的对话"},
-            ])
-
-        self.assertEqual(1, created)
-        create_pending.assert_awaited_once_with(
-            "create",
-            title="今天的日记",
-            summary="心情；进展",
-            content="今天完成了一次重要调整。",
-            metadata={"entry_kind": "diary"},
+        self.assertEqual(
+            "IDENTITY\n\nSTYLE\n\nFIXED\n\nFLOW",
+            preview["content"],
         )
 
-    def test_diary_action_lives_in_long_term_view(self):
+    def test_retired_diary_draft_ui_removed(self):
         root = Path(__file__).resolve().parents[1]
-        dashboard = (root / "templates" / "dashboard.html").read_text(
-            encoding="utf-8"
-        )
-        script = (root / "static" / "js" / "dashboard.js").read_text(
-            encoding="utf-8"
-        )
-        directory = dashboard.split('id="standing-view-directory"', 1)[1].split(
-            'id="standing-view-long-term"', 1
-        )[0]
-        long_term = dashboard.split('id="standing-view-long-term"', 1)[1].split(
-            '</section>', 1
-        )[0]
-
-        self.assertNotIn("long-term-diary-btn", directory)
-        self.assertIn("long-term-diary-btn", long_term)
-        self.assertIn("/api/diaries/draft", script)
-        self.assertNotIn("/api/standing-memory/recent-diary", script)
+        dashboard = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        self.assertNotIn("long-term-diary-btn", dashboard)
+        self.assertNotIn("/api/diaries/draft", script)
+        self.assertIn('id="diary-notebook"', dashboard)
 
     async def test_standing_memory_is_in_cached_system_and_user_messages_are_untouched(self):
         user_messages = [{"role": "user", "content": "clean user message"}]
@@ -233,8 +245,11 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("clean user message", user_messages[0]["content"])
         self.assertEqual(2, len(system))
-        self.assertEqual("CORE\n\nFIXED", system[0]["text"])
-        self.assertEqual("FLOW\n\nINTERACTION", system[1]["text"])
+        self.assertEqual(
+            "CORE\n\nFIXED\n\nINTERACTION",
+            system[0]["text"],
+        )
+        self.assertEqual("FLOW", system[1]["text"])
         standing_builder.assert_awaited_once_with()
         self.assertEqual(
             {"type": "ephemeral", "ttl": "1h"},
@@ -272,16 +287,19 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
             "memory_date": "2026-08-11",
             "content": "不应出现在列表结果里的正文",
         }])
+        settings = {"search_enabled": False, "nocturne_recall_enabled": False,
+                    "embedding_api_url": "https://embedding.test/v1",
+                    "embedding_model": "test", "embedding_api_key": "key"}
         with patch.object(
             main, "get_conversation_model_settings",
-            AsyncMock(return_value={"search_enabled": True}),
+            AsyncMock(return_value=settings),
         ), patch.object(main, "search_long_term_memory_summaries", search):
             result = json.loads(await main.dispatch_tool_call(
                 "search_diary", {"query": "纸箱", "limit": 4}
             ))
 
         search.assert_awaited_once_with(
-            "纸箱", {"search_enabled": True}, 4, entry_kind="diary"
+            "纸箱", settings, 4
         )
         self.assertEqual("第一次搬家", result["entries"][0]["title"])
         self.assertEqual(["搬家", "纸箱"], result["entries"][0]["keywords"])
@@ -293,104 +311,17 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("Error: query is required", result)
 
-    async def test_search_memory_only_searches_fragments(self):
-        settings = {"search_enabled": True}
-        search = AsyncMock(return_value=[{
-            "id": 9,
-            "title": "雨夜",
-            "content": "约定了暗号。",
-            "memory_date": "2026-08-01",
-        }])
-        with patch.object(
-            main, "get_conversation_model_settings", AsyncMock(return_value=settings)
-        ), patch.object(main, "search_long_term_memory_summaries", search):
-            result = json.loads(await main.dispatch_tool_call(
-                "search_memory", {"query": "那个暗号", "limit": 4}
-            ))
+    async def test_in_flight_legacy_search_reads_fragments(self):
+        with patch.object(main,'MEMORY_ENABLED',True), patch.object(main.fragments,'search',AsyncMock(return_value=[])) as search:
+            await main.dispatch_tool_call("search_memory", {"query":"那个暗号"})
+        search.assert_awaited_once_with("那个暗号",[])
 
-        search.assert_awaited_once_with(
-            "那个暗号", settings, 4, entry_kind="fragment"
-        )
-        self.assertEqual("那个暗号", result["query"])
-        self.assertEqual(9, result["entries"][0]["id"])
-        self.assertEqual("约定了暗号。", result["entries"][0]["content"])
-        self.assertNotIn("title", result["entries"][0])
-        self.assertNotIn("memory_date", result["entries"][0])
-
-    async def test_vector_recall_is_xml_background_context_without_body(self):
-        search = AsyncMock(return_value=[{
-            "id": 3,
-            "title": "A < B & C",
-            "content": "x < y，后来有了 a & b 的梗。",
-        }])
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main,
-            "get_conversation_model_settings",
-            AsyncMock(return_value={"search_enabled": True, "long_term_recall_limit": 7}),
-        ), patch.object(main, "search_long_term_memory_summaries", search):
-            block = await main._build_long_term_recall_block("想起旧事")
-
-        search.assert_awaited_once()
-        self.assertEqual(main.LONG_TERM_RECALL_CANDIDATE_LIMIT, search.await_args.args[2])
-        self.assertIn('role="background_context"', block)
-        self.assertIn('<memory_recall source="system">', block)
-        self.assertIn("此消息为碎片记忆召回", block)
-        self.assertTrue(block.endswith("</memory_recall>"))
-        self.assertIn("<recalled_memory_fragments", block)
-        self.assertIn('<memory_fragment id="3">', block)
-        self.assertNotIn("recalled_long_term_memories", block)
-        self.assertIn(
-            "<description>从日记旧摘要或会话中提取的碎片记忆；每条内容都可直接使用</description>",
-            block,
-        )
-        self.assertNotIn("这不是用户说的话", block)
-        self.assertNotIn("<title>", block)
-        self.assertNotIn("<memory_date>", block)
-        self.assertIn("<content>x &lt; y，后来有了 a &amp; b 的梗。</content>", block)
-
-    async def test_vector_recall_uses_token_budget_instead_of_item_count(self):
-        first = {"id": 1, "content": "甲" * 120}
-        second = {"id": 2, "content": "乙" * 120}
-        search = AsyncMock(return_value=[first])
-        settings = {"search_enabled": True, "long_term_recall_limit": 1}
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main, "get_conversation_model_settings", AsyncMock(return_value=settings)
-        ), patch.object(main, "search_long_term_memory_summaries", search):
-            one_memory_block = await main._build_long_term_recall_block("旧事")
-            budget = main._estimate_recall_tokens(one_memory_block)
-            search.return_value = [first, second]
-            settings["long_term_recall_token_budget"] = budget
-            block = await main._build_long_term_recall_block("旧事")
-
-        self.assertIn('<memory_fragment id="1">', block)
-        self.assertNotIn('<memory_fragment id="2">', block)
-        self.assertLessEqual(main._estimate_recall_tokens(block), budget)
-        self.assertEqual(
-            main.LONG_TERM_RECALL_CANDIDATE_LIMIT,
-            search.await_args.args[2],
-        )
-
-    async def test_oversized_top_recall_is_truncated_to_budget(self):
-        search = AsyncMock(return_value=[{
-            "id": 7,
-            "title": "仍然最相关",
-            "content": "很长的摘要" * 500,
-        }])
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main,
-            "get_conversation_model_settings",
-            AsyncMock(return_value={
-                "search_enabled": True,
-                "long_term_recall_token_budget": 256,
-            }),
-        ), patch.object(
-            main, "search_long_term_memory_summaries", search
-        ):
-            block = await main._build_long_term_recall_block("旧事")
-
-        self.assertIn('<memory_fragment id="7">', block)
-        self.assertIn("…</content>", block)
-        self.assertLessEqual(main._estimate_recall_tokens(block), 256)
+    def test_topic_switch_ignores_previous_long_assistant_reply(self):
+        query = main._build_auto_recall_query('咖啡馆有什么偏好', [
+            {'role': 'user', 'content': '聊聊钢琴'},
+            {'role': 'assistant', 'content': '钢琴' * 3000},
+        ])
+        self.assertEqual('用户：咖啡馆有什么偏好', query)
 
     def test_auto_recall_query_uses_latest_three_conversation_turns(self):
         messages = [
@@ -411,101 +342,14 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("助手：第二轮助手提到了暗号", query)
         self.assertIn("用户：后来呢", query)
 
-    async def test_long_term_recall_searches_with_conversation_query_only(self):
-        search = AsyncMock(return_value=[{
-            "id": 6,
-            "title": "雨夜",
-            "content": "约定了暗号。",
-        }])
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main,
-            "get_conversation_model_settings",
-            AsyncMock(return_value={"search_enabled": True, "long_term_recall_limit": 3}),
-        ), patch.object(main, "search_long_term_memory_summaries", search):
-            block = await main._build_long_term_recall_block(
-                "后来呢",
-                "用户：之前说到雨夜\n\n助手：约定了暗号\n\n用户：后来呢",
-            )
+    def test_auto_recall_query_ignores_persisted_system_reference_envelope(self):
+        message = {"role": "user", "content": "用户真正说的话"}
+        main._prepend_system_reference_to_user(message, "不应再次召回的后台资料")
 
-        self.assertEqual(
-            "用户：之前说到雨夜\n\n助手：约定了暗号\n\n用户：后来呢",
-            search.await_args.args[0],
-        )
-        self.assertNotIn("之前说到雨夜", block)
-        self.assertIn("<content>约定了暗号。</content>", block)
+        query = main._build_auto_recall_query("用户真正说的话", [message])
 
-    async def test_generated_summary_uses_long_term_model_and_persona(self):
-        response = MagicMock(status_code=200)
-        response.json.return_value = {
-            "choices": [{"message": {"content": [
-                {"type": "text", "text": "一段贴合角色口吻的摘要。"},
-            ]}}],
-            "usage": {},
-        }
-        client = MagicMock()
-        client.post = AsyncMock(return_value=response)
-        build_persona = AsyncMock(return_value="温柔、克制地叙述。")
-        with patch.object(
-            main,
-            "_load_long_term_summary_runtime",
-            AsyncMock(return_value={
-                "api_url": "https://memory.example/v1",
-                "api_key": "secret",
-                "model": "memory-model",
-            }),
-        ), patch.object(
-            main, "MEMORY_ORGANIZER_MAX_TOKENS", 6000,
-        ), patch.object(
-            main, "build_system_prompt", build_persona
-        ), patch.object(
-            main, "get_http_client", AsyncMock(return_value=client)
-        ), patch.object(main, "_record_token_usage", AsyncMock()):
-            summary = await main._generate_long_term_memory_summary("雨夜", "那天约定了暗号。")
-
-        self.assertEqual("一段贴合角色口吻的摘要。", summary)
-        self.assertEqual(6000, client.post.await_args.kwargs["json"]["max_tokens"])
-        build_persona.assert_awaited_once_with(
-            include_sections=["Identity", "Interaction"]
-        )
-        system = client.post.await_args.kwargs["json"]["messages"][0]["content"]
-        self.assertIn("<persona_context", system)
-        self.assertIn("温柔、克制地叙述。", system)
-        self.assertIn("不要把人格提示词本身写入摘要", system)
-
-    async def test_failed_visible_summary_records_billed_usage(self):
-        response = MagicMock(status_code=200)
-        response.json.return_value = {
-            "choices": [{
-                "message": {"content": []},
-                "finish_reason": "length",
-            }],
-            "usage": {"prompt_tokens": 20, "completion_tokens": 30},
-        }
-        client = MagicMock()
-        client.post = AsyncMock(return_value=response)
-        record_usage = AsyncMock()
-        with patch.object(
-            main,
-            "_load_long_term_summary_runtime",
-            AsyncMock(return_value={
-                "api_url": "https://memory.example/v1",
-                "api_key": "secret",
-                "model": "memory-model",
-            }),
-        ), patch.object(
-            main, "MEMORY_ORGANIZER_MAX_TOKENS", 6000,
-        ), patch.object(
-            main, "build_system_prompt", AsyncMock(return_value="")
-        ), patch.object(
-            main, "get_http_client", AsyncMock(return_value=client)
-        ), patch.object(main, "_record_token_usage", record_usage):
-            with self.assertRaisesRegex(RuntimeError, "finish_reason=length"):
-                await main._generate_long_term_memory_summary("雨夜", "约定了暗号。")
-
-        record_usage.assert_awaited_once()
-        self.assertFalse(record_usage.await_args.args[5])
-        self.assertEqual(20, record_usage.await_args.args[6]["input_tokens"])
-        self.assertEqual(30, record_usage.await_args.args[6]["output_tokens"])
+        self.assertEqual("用户：用户真正说的话", query)
+        self.assertEqual("用户真正说的话", main._latest_plain_user_text([message]))
 
     async def test_diary_api_ignores_retired_summary_field(self):
         create = AsyncMock(return_value={"id": 1})
@@ -567,10 +411,88 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(7, proposal["target_diary_id"])
         self.assertNotIn("target_memory_id", proposal)
 
+    async def test_diary_list_api_returns_only_lightweight_fields(self):
+        rows = [{
+            "id": 7,
+            "title": "今天",
+            "memory_date": "2026-09-06",
+            "keywords": ["散步"],
+            "content": "不应进入列表的完整正文",
+            "metadata": {"merge_sources": [{"content": "很大的旧日记全文"}]},
+        }]
+        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
+            main, "get_diary_list", AsyncMock(return_value=rows)
+        ):
+            result = await main.api_list_long_term_memory()
+
+        self.assertEqual({
+            "diaries": [{
+                "author_role": "assistant",
+                "id": 7,
+                "title": "今天",
+                "diary_date": "2026-09-06",
+                "keywords": ["散步"],
+            }]
+        }, result)
+        self.assertNotIn("content", result["diaries"][0])
+        self.assertNotIn("metadata", result["diaries"][0])
+
+    async def test_diary_detail_api_still_returns_content_and_metadata(self):
+        diary = {
+            "id": 7,
+            "title": "今天",
+            "memory_date": "2026-09-06",
+            "keywords": ["散步"],
+            "content": "完整正文",
+            "metadata": {"entry_kind": "diary", "merge_sources": []},
+        }
+        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
+            main, "get_long_term_memory", AsyncMock(return_value=diary)
+        ):
+            result = await main.api_get_long_term_memory(7)
+
+        self.assertEqual("完整正文", result["content"])
+        self.assertEqual([], result["metadata"]["merge_sources"])
+
+    async def test_pending_api_keeps_full_proposal_and_target_for_diff(self):
+        proposal = {
+            "id": 9,
+            "operation": "edit",
+            "target_memory_id": 7,
+            "memory_date": "2026-09-06",
+            "title": "新标题",
+            "keywords": [],
+            "content": "新正文",
+            "metadata": {"merge_sources": [{"content": "合并前原文"}]},
+        }
+        target = {
+            "id": 7,
+            "memory_date": "2026-09-06",
+            "title": "旧标题",
+            "keywords": [],
+            "content": "旧正文",
+            "metadata": {"entry_kind": "diary"},
+        }
+        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
+            main, "get_pending_long_term_memory_operations",
+            AsyncMock(return_value=[proposal]),
+        ), patch.object(
+            main, "get_long_term_memory", AsyncMock(return_value=target)
+        ):
+            result = await main.api_list_pending_long_term_memory()
+
+        item = result["pending"][0]
+        self.assertEqual("新正文", item["content"])
+        self.assertEqual("合并前原文", item["metadata"]["merge_sources"][0]["content"])
+        self.assertEqual("旧正文", item["target_diary"]["content"])
+
     def test_openapi_exposes_diary_routes_and_hides_legacy_routes(self):
         paths = main.app.openapi()["paths"]
         self.assertIn("/api/diaries", paths)
+        self.assertIn("/api/diaries/pending", paths)
         self.assertIn("/api/diaries/{memory_id}", paths)
+        self.assertNotIn("/api/fragments", paths)
+        self.assertNotIn("/api/fragments/{memory_id}", paths)
         self.assertIn("/api/standing-memory/{block_id}/to-diary", paths)
         self.assertFalse(any("long-term-memory" in path for path in paths))
 
@@ -612,33 +534,6 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(cached[-1]["content"].endswith(dynamic))
         self.assertNotIn("cache_control", cached[-1])
 
-    async def test_retired_read_memory_remains_compatible_with_old_tool_rounds(self):
-        memory = {
-            "id": 12,
-            "title": "事件",
-            "summary": "项目摘要",
-            "memory_date": "2026-08-11",
-            "content": "ABCDEFGHIJ",
-            "enabled": True,
-            "metadata": {"entry_kind": "fragment"},
-        }
-        with patch.object(
-            main, "get_long_term_memory", AsyncMock(return_value=memory)
-        ), patch.object(main, "LONG_TERM_MEMORY_READ_MAX_CHARS", 5):
-            first = json.loads(await main.dispatch_tool_call(
-                "read_memory", {"id": 12}
-            ))
-            second = json.loads(await main.dispatch_tool_call(
-                "read_memory", {"id": 12, "offset": 5}
-            ))
-
-        self.assertEqual("ABCDE", first["content"])
-        self.assertEqual(5, first["next_offset"])
-        self.assertEqual("FGHIJ", second["content"])
-        self.assertIsNone(second["next_offset"])
-        self.assertEqual(10, first["total_chars"])
-        self.assertEqual("项目摘要", first["summary"])
-
     async def test_read_diary_rejects_a_fragment_id(self):
         memory = {
             "id": 12,
@@ -652,19 +547,6 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
             result = await main.dispatch_tool_call("read_diary", {"id": 12})
 
             self.assertEqual("Error: diary entry not found", result)
-
-    def test_public_fragment_has_only_id_and_text(self):
-        fragment = main._public_memory_fragment({
-            "id": 9,
-            "title": "错误标题",
-            "content": "2025 年初，约定了暗号。",
-            "memory_date": "2026-08-11",
-        })
-
-        self.assertEqual({
-            "id": 9,
-            "content": "2025 年初，约定了暗号。",
-        }, fragment)
 
     async def test_read_tool_reads_legacy_disabled_memory(self):
         with patch.object(
@@ -683,7 +565,7 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("仍然可以读取", result["content"])
 
-    def test_read_result_is_durable_but_not_a_cache_anchor(self):
+    def test_read_result_is_durable_and_can_extend_the_cache(self):
         tool_id = "ltm-read-1"
         assistant = [{
             "type": "tool_use",
@@ -729,7 +611,8 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
                     cache_scope_id="ltm-read-cache-test",
                 )
 
-        self.assertNotIn("cache_control", body["messages"][-1]["content"][0])
+        self.assertEqual({"type": "ephemeral", "ttl": "1h"},
+                         body["messages"][-1]["content"][0]["cache_control"])
 
     def test_memory_tool_round_remains_visible_on_following_turn(self):
         rows = main._durable_anthropic_tool_rows(
@@ -792,24 +675,28 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
         dashboard = (root / "templates" / "dashboard.html").read_text(
             encoding="utf-8"
         )
+        prompt_page = (root / "templates" / "prompt.html").read_text(
+            encoding="utf-8"
+        )
         script = (root / "static" / "js" / "dashboard.js").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("全部提示词拼接", dashboard)
-        self.assertIn('id="prompt-splice-panel"', dashboard)
-        settings = dashboard.split('id="section-settings"', 1)[1].split(
-            'id="section-quotes"', 1
-        )[0]
-        self.assertIn("prompt-splice-panel", settings)
+        self.assertNotIn('id="prompt-splice-panel"', dashboard)
+        self.assertIn("/api/prompt/splice-preview", prompt_page)
+        self.assertIn("box.textContent = data.content", prompt_page)
+        self.assertIn("data.full_prompt_chars", prompt_page)
+        self.assertNotIn("<details", prompt_page.split(
+            'id="panel-preview"', 1
+        )[1].split('id="panel-logs"', 1)[0])
         self.assertNotIn("模型上下文", dashboard)
         self.assertNotIn("模型实际看到的记忆上下文", dashboard)
-        self.assertIn('/api/prompt/splice-preview', script)
-        self.assertIn("handlePromptPreviewToggle", script)
+        self.assertNotIn('/api/prompt/splice-preview', script)
+        self.assertNotIn("handlePromptPreviewToggle", script)
         self.assertNotIn("MemoryContext", script)
         self.assertNotIn("function renderStandingOverview()", script)
 
-    async def test_prompt_preview_places_interaction_after_memories(self):
+    async def test_prompt_preview_places_timeline_after_interaction(self):
         with patch.object(main, "get_all_sections", AsyncMock(return_value=[
             {"key": "Identity", "content": "IDENTITY"},
             {"key": "Interaction", "content": "INTERACTION"},
@@ -820,10 +707,31 @@ class LongTermMemoryPromptTests(unittest.IsolatedAsyncioTestCase):
             preview = await main._build_prompt_splice_preview()
 
         self.assertEqual(
-            ["prompt:Identity", "fixed_memory", "flow_memory", "prompt:Interaction"],
+            [
+                "prompt:Identity", "fixed_memory",
+                "prompt:Interaction", "flow_memory",
+            ],
             [section["id"] for section in preview["sections"]],
         )
-        self.assertLess(preview["content"].index("FLOW"), preview["content"].index("INTERACTION"))
+        self.assertLess(preview["content"].index("INTERACTION"), preview["content"].index("FLOW"))
+        self.assertNotIn("回忆录", preview["content"])
+
+    async def test_prompt_page_character_count_uses_the_full_splice(self):
+        sections = [
+            {"key": "Identity", "content": "IDENTITY"},
+            {"key": "Interaction", "content": "INTERACTION"},
+        ]
+        with patch.object(
+            main, "get_all_sections", AsyncMock(return_value=sections),
+        ), patch.object(
+            main, "_build_prompt_splice_preview",
+            AsyncMock(return_value={"character_count": 1234}),
+        ) as preview:
+            result = await main.api_prompt()
+
+        self.assertEqual(1234, result["full_prompt_chars"])
+        self.assertEqual(len("IDENTITY\n\nINTERACTION"), result["total_chars"])
+        preview.assert_awaited_once_with(sections)
 
 
 class PendingLongTermMemoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
@@ -986,6 +894,48 @@ class LongTermMemoryRecallDatabaseTests(unittest.IsolatedAsyncioTestCase):
             database._long_term_embedding_config_hash(changed_url),
         )
 
+    async def test_embedding_tasks_are_sent_only_to_jina_models(self):
+        requests = []
+
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"data": [{"index": 0, "embedding": [1, 2]}]}
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def post(self, _url, **kwargs):
+                requests.append(kwargs["json"])
+                return Response()
+
+        with patch.object(database.httpx, "AsyncClient", return_value=Client()):
+            await database._embed_conversation_chunks(
+                ["query"],
+                {"embedding_model": "jina-embeddings-v3"},
+                task="retrieval.query",
+            )
+            await database._embed_conversation_chunks(
+                ["query"],
+                {"embedding_model": "other-embedding-model"},
+                task="retrieval.query",
+            )
+            await database._embed_conversation_chunks(
+                ["query"],
+                {"embedding_model": "jina-embeddings-v2-base-en"},
+                task="retrieval.query",
+            )
+
+        self.assertEqual("retrieval.query", requests[0]["task"])
+        self.assertNotIn("task", requests[1])
+        self.assertNotIn("task", requests[2])
+
     async def test_refresh_persists_and_queries_embedding_config_hash(self):
         conn = MagicMock()
         conn.fetch = AsyncMock(side_effect=[
@@ -1004,14 +954,21 @@ class LongTermMemoryRecallDatabaseTests(unittest.IsolatedAsyncioTestCase):
         }
         config_hash = database._long_term_embedding_config_hash(settings)
 
+        embed = AsyncMock(return_value=[[1.0, 0.0]])
         with patch.object(
             database, "get_pool", AsyncMock(return_value=self._pool_with_connection(conn))
         ), patch.object(
             database,
             "_embed_conversation_chunks",
-            AsyncMock(return_value=[[1.0, 0.0]]),
+            embed,
         ):
             await database.refresh_long_term_memory_embeddings(settings)
+
+        embed.assert_awaited_once_with(
+            ["一次远足\n山路"],
+            settings,
+            task="retrieval.passage",
+        )
 
         existing_query = conn.fetch.await_args_list[1]
         self.assertIn("embedding_config_hash = $2", existing_query.args[0])
@@ -1047,18 +1004,23 @@ class LongTermMemoryRecallDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "embedding": [0.2, 0.98],
             },
         ])
+        for row in conn.fetch.return_value:
+            row['embedding_content_hash'] = hashlib.sha256(
+                database._long_term_embedding_text(row).encode()
+            ).hexdigest()
         settings = {
             "embedding_api_url": "https://embed.example/v1",
             "embedding_model": "embed-model",
             "embedding_api_key": "secret",
         }
         schedule = MagicMock(return_value=True)
+        embed = AsyncMock(return_value=[[1.0, 0.0]])
         with patch.object(
             database, "get_pool", AsyncMock(return_value=self._pool_with_connection(conn))
         ), patch.object(
             database,
             "_embed_conversation_chunks",
-            AsyncMock(return_value=[[1.0, 0.0]]),
+            embed,
         ), patch.object(
             database, "schedule_long_term_memory_embedding_refresh", schedule
         ), patch.object(database, "LONG_TERM_RECALL_MIN_SEMANTIC_SCORE", 0.35):
@@ -1067,6 +1029,11 @@ class LongTermMemoryRecallDatabaseTests(unittest.IsolatedAsyncioTestCase):
             )
 
         schedule.assert_called_once_with(settings)
+        embed.assert_awaited_once_with(
+            ["remember project"],
+            settings,
+            task="retrieval.query",
+        )
         self.assertEqual([2, 3], [item["id"] for item in result])
         search_call = conn.fetch.await_args
         self.assertIn("e.embedding_config_hash = $2", search_call.args[0])

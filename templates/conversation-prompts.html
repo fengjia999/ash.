@@ -1,0 +1,63 @@
+<dialog id="extraPromptsModal" aria-labelledby="extraPromptsTitle">
+  <div class="extra-prompts-dialog">
+    <header class="extra-prompts-header"><h3 id="extraPromptsTitle" tabindex="-1" autofocus>额外提示词</h3></header>
+    <div class="extra-prompts-body">
+      <section class="extra-prompts-section" aria-labelledby="extraPromptFrontendTitle">
+        <h4 id="extraPromptFrontendTitle" class="extra-prompts-section-title">前端提示词</h4>
+        <label class="extra-prompt-setting-row">
+          <span class="extra-prompt-setting-copy"><strong>读取前端提示词</strong><span>从当前请求捕获 system prompt</span></span>
+          <span class="extra-prompt-switch">
+            <input type="checkbox" role="switch" id="captureFrontendPrompts" aria-label="读取前端提示词" onchange="ConversationPrompts.saveExtraPromptCaptureSetting()">
+            <span class="extra-prompt-switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+        <label class="extra-prompt-setting-row extra-prompt-injection-row">
+          <span class="extra-prompt-setting-copy"><strong>注入到对话</strong><span>将捕获内容传给模型</span></span>
+          <span class="extra-prompt-switch">
+            <input type="checkbox" role="switch" id="autoInjectCapturedPrompts" aria-label="注入到对话" onchange="ConversationPrompts.saveExtraPromptCaptureSetting()">
+            <span class="extra-prompt-switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </section>
+      <section class="extra-prompts-section" aria-labelledby="extraPromptPresetTitle">
+        <div class="extra-prompts-section-heading"><h4 id="extraPromptPresetTitle" class="extra-prompts-section-title">提示词预设</h4><span>所有会话可用</span></div>
+        <div id="extraPromptPresets"></div>
+        <details id="extraPromptEditor" class="extra-prompt-editor" oninput="ConversationPrompts.changed()">
+          <summary class="extra-prompt-add"><span aria-hidden="true">＋</span><span>添加提示词块</span></summary>
+          <div class="extra-prompt-editor-fields">
+          <label id="extraPromptEditorTitle" for="extraPromptTitle">新提示词块</label>
+          <input id="extraPromptTitle" maxlength="120" placeholder="名称">
+          <label for="extraPromptContent">提示词内容</label>
+          <textarea id="extraPromptContent" rows="6" placeholder="输入提示词，或从捕获内容中选取"></textarea>
+          <div class="extra-prompt-row extra-prompt-editor-options">
+          <select id="extraPromptPosition" aria-label="注入位置"><option value="before">消息前 · 保留在上下文</option><option value="after">消息后 · 不保留</option></select>
+          <select id="extraPromptFrequency" aria-label="注入频率" onchange="ConversationPrompts.toggleExtraPromptInterval()"><option value="repeat">重复注入</option><option value="once">仅一次</option></select>
+          <label class="extra-prompt-interval" id="extraPromptIntervalWrap">每 <input type="number" id="extraPromptInterval" min="1" max="100000" value="1"> 条</label>
+          <label class="extra-prompt-lock"><input type="checkbox" id="extraPromptLocked" checked> 锁定，暂不注入</label>
+          </div>
+          <div class="extra-prompt-row">
+          <button class="btn btn-primary extra-prompt-mutation-action" id="saveExtraPromptBtn" onclick="ConversationPrompts.saveExtraPrompt()">保存到会话</button>
+          <button class="btn btn-secondary extra-prompt-preset-action" id="saveExtraPromptPresetBtn" onclick="ConversationPrompts.saveExtraPromptPreset()">存为预设</button>
+          <button class="btn btn-secondary" onclick="ConversationPrompts.resetExtraPromptEditor()">清空</button>
+          </div>
+        </div>
+        </details>
+        <p id="extraPromptPresetStatus" class="extra-prompt-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="extra-prompts-section" id="extraPromptConversationSection" aria-labelledby="extraPromptConversationTitle" hidden>
+        <h4 id="extraPromptConversationTitle" class="extra-prompts-section-title">本会话提示词</h4>
+        <div id="extraPromptBlocks"></div>
+      </section>
+      <section class="extra-prompts-section" aria-labelledby="extraPromptSourcesTitle">
+        <h4 id="extraPromptSourcesTitle" class="extra-prompts-section-title">前端捕获</h4>
+        <div id="extraPromptSources"></div>
+      </section>
+      <details class="extra-prompts-section extra-prompt-history" id="extraPromptHistory" hidden>
+        <summary class="extra-prompts-section-title">最近注入</summary>
+        <div id="extraPromptInjections"></div>
+      </details>
+      <p id="extraPromptStatus" class="extra-prompt-status extra-prompt-panel-status" role="status" aria-live="polite"></p>
+    </div>
+    <footer class="extra-prompts-footer"><button class="btn btn-secondary" onclick="ConversationPrompts.close()">关闭</button></footer>
+  </div>
+</dialog>

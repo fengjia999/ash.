@@ -35,7 +35,8 @@ class ConversationToolSnapshotTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(
-            [*main.BUILTIN_MEMORY_TOOLS, *merged[1:]],
+            [*main.BUILTIN_MEMORY_TOOLS, *main.noteboard.TOOLS, *main.BUILTIN_PROMPT_TOOLS,
+             *main.BUILTIN_HISTORY_TOOLS, *main.BUILTIN_NOTIFICATION_TOOLS, *merged[1:]],
             tools,
         )
         self.assertEqual({"frontend_effect"}, frontend_names)
@@ -69,7 +70,8 @@ class ConversationToolSnapshotTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(
-            [*main.BUILTIN_MEMORY_TOOLS, *stored[1:]],
+            [*main.BUILTIN_MEMORY_TOOLS, *main.noteboard.TOOLS, *main.BUILTIN_PROMPT_TOOLS,
+             *main.BUILTIN_HISTORY_TOOLS, *main.BUILTIN_NOTIFICATION_TOOLS, *stored[1:]],
             tools,
         )
         self.assertEqual({"play_music"}, frontend_names)
@@ -102,7 +104,8 @@ class ConversationToolSnapshotTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(
-            [*main.BUILTIN_MEMORY_TOOLS, stored[1]],
+            [*main.BUILTIN_MEMORY_TOOLS, *main.noteboard.TOOLS, *main.BUILTIN_PROMPT_TOOLS,
+             *main.BUILTIN_HISTORY_TOOLS, *main.BUILTIN_NOTIFICATION_TOOLS, stored[1]],
             tools,
         )
         self.assertNotIn("read_long_term_memory", {tool["name"] for tool in tools})
@@ -133,7 +136,8 @@ class ConversationToolSnapshotTests(unittest.IsolatedAsyncioTestCase):
                 main.BUILTIN_MEMORY_TOOLS[0], external,
             ])
 
-        self.assertEqual([external], tools)
+        self.assertEqual([*main.BUILTIN_PROMPT_TOOLS,
+                          *main.BUILTIN_NOTIFICATION_TOOLS, external], tools)
 
     def test_frontend_source_matching_handles_namespaces(self):
         self.assertTrue(

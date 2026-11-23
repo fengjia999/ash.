@@ -16,6 +16,7 @@ class DashboardNavigationTests(unittest.TestCase):
         result = subprocess.run(
             ["node", "-e", r"""
 const assert = require('node:assert/strict');
+const window = {};
 let view = 'directory';
 const calls = [];
 const document = {
@@ -25,6 +26,8 @@ const document = {
 const closeConversationDetail = () => {};
 const loadStandingMemory = () => calls.push('directory');
 const loadLongTermMemory = () => calls.push('diaries');
+const loadIdentityPresets = () => calls.push('identity');
+const byId = () => ({getAttribute: () => null, set src(value) {calls.push('prompt');}});
 """ + navigation + r"""
 switchSection('standing');
 assert.deepEqual(calls, ['directory']);
@@ -35,7 +38,10 @@ assert.deepEqual(calls, ['directory', 'diaries']);
 calls.length = 0;
 view = 'fragments';
 switchSection('standing');
-assert.deepEqual(calls, ['directory', 'diaries']);
+assert.deepEqual(calls, ['directory']);
+calls.length = 0;
+switchSection('prompts');
+assert.deepEqual(calls, ['identity', 'prompt']);
 """],
             capture_output=True, text=True, timeout=10,
         )

@@ -24,14 +24,14 @@ SEED_MEMORIES = [
     {"content": "用户养了一只橘猫叫大橘", "importance": 7},
     {"content": "用户是程序员，主要写 Python", "importance": 7},
     {"content": "用户住在北京，喜欢吃火锅", "importance": 6},
-
+    
     # ======== 偏好 ========
     {"content": "用户喜欢简洁的回答，不喜欢太啰嗦", "importance": 8},
     {"content": "用户是 INTJ，喜欢逻辑清晰的讨论", "importance": 6},
-
+    
     # ======== 重要事件 ========
     {"content": "2026-01-01 用户和 AI 开始使用记忆系统", "importance": 7},
-
+    
     # ======== 在这里继续添加更多记忆 ========
 ]
 
@@ -40,30 +40,30 @@ async def run_seed_import():
     """执行导入（自动跳过已存在的记忆）"""
     pool = await get_pool()
     before = await get_all_memories_count()
-
+    
     imported = 0
     skipped = 0
-
+    
     for mem in SEED_MEMORIES:
         async with pool.acquire() as conn:
             existing = await conn.fetchval(
                 "SELECT COUNT(*) FROM memories WHERE content = $1",
                 mem["content"],
             )
-
+        
         if existing > 0:
             skipped += 1
             continue
-
+        
         await save_memory(
             content=mem["content"],
             importance=mem["importance"],
             source_session="seed-import",
         )
         imported += 1
-
+    
     after = await get_all_memories_count()
-
+    
     return {
         "status": "done",
         "imported": imported,

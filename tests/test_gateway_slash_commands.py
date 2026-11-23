@@ -15,12 +15,6 @@ class GatewayCommandParsingTests(unittest.TestCase):
 
         self.assertEqual("message", parsed["name"])
         self.assertEqual("(12)", parsed["argument"])
-        self.assertEqual("diary", main._parse_gateway_command([
-            {"role": "user", "content": "/diary"},
-        ])["name"])
-        self.assertEqual("yes", main._parse_gateway_command([
-            {"role": "user", "content": "/yes"},
-        ])["name"])
 
     def test_unknown_escaped_and_mixed_media_messages_are_not_commands(self):
         self.assertIsNone(main._parse_gateway_command([
@@ -53,101 +47,11 @@ class GatewayCommandParsingTests(unittest.TestCase):
 
 
 class GatewayCommandExecutionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_diary_creates_one_conversation_bound_review_proposal(self):
-        rows = [
-            {"id": 1, "role": "user", "content": "今天很开心", "hidden": False,
-             "content_json": None},
-            {"id": 2, "role": "assistant", "content": "发生了什么？", "hidden": False,
-             "content_json": None},
-        ]
-        proposal = {
-            "id": 51,
-            "title": "开心的一天",
-            "summary": "记录今天的好心情。",
-            "content": "今天发生了一些值得记住的事情。",
-        }
-        create = AsyncMock(return_value=[proposal])
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main, "MEMORY_ORGANIZER_ENABLED", True
-        ), patch.object(
-            main, "_get_pending_diary_command_proposal", AsyncMock(return_value=None)
-        ), patch.object(
-            main, "get_context_messages", AsyncMock(return_value=rows)
-        ), patch.object(
-            main, "_create_recent_diary_long_term_draft_records", create
-        ), patch.object(main.uuid, "uuid4", return_value=MagicMock(hex="review-token")):
-            text = await main._execute_gateway_command(
-                {"name": "diary", "argument": ""}, {"id": 7}
-            )
-
-        self.assertIn("回复 /yes", text)
-        self.assertIn("开心的一天", text)
-        self.assertEqual(rows, create.await_args.args[0])
-        self.assertEqual(1, create.await_args.kwargs["max_drafts"])
-        self.assertEqual({
-            "source_command": "diary",
-            "conversation_id": 7,
-            "review_token": "review-token",
-        }, create.await_args.kwargs["proposal_metadata"])
-
-    async def test_diary_reuses_unresolved_draft_instead_of_generating_another(self):
-        proposal = {"id": 51, "title": "原草稿", "content": "正文"}
-        generate = AsyncMock()
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main, "MEMORY_ORGANIZER_ENABLED", True
-        ), patch.object(
-            main, "_get_pending_diary_command_proposal", AsyncMock(return_value=proposal)
-        ), patch.object(main, "_create_recent_diary_long_term_draft_records", generate):
-            text = await main._execute_gateway_command(
-                {"name": "diary", "argument": ""}, {"id": 7}
-            )
-
-        self.assertIn("已有一篇待确认日记", text)
-        self.assertIn("原草稿", text)
-        generate.assert_not_awaited()
-
-    async def test_yes_approves_only_bound_diary_proposal(self):
-        proposal = {"id": 51, "title": "日记草稿", "content": "正文"}
-        apply = AsyncMock(return_value={
-            "operation": "create",
-            "memory": {"id": 81, "title": "日记草稿"},
-        })
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main, "_get_pending_diary_command_proposal", AsyncMock(return_value=proposal)
-        ), patch.object(main, "apply_pending_long_term_memory_operation", apply):
-            text = await main._execute_gateway_command(
-                {"name": "yes", "argument": ""}, {"id": 7}
-            )
-
-        apply.assert_awaited_once_with(51)
-        self.assertIn("第 #81 篇", text)
-
-    async def test_no_rejects_only_bound_diary_proposal(self):
-        proposal = {"id": 52, "title": "日记草稿", "content": "正文"}
-        reject = AsyncMock(return_value=True)
-        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main, "_get_pending_diary_command_proposal", AsyncMock(return_value=proposal)
-        ), patch.object(main, "reject_pending_long_term_memory_operation", reject):
-            text = await main._execute_gateway_command(
-                {"name": "no", "argument": ""}, {"id": 7}
-            )
-
-        reject.assert_awaited_once_with(52)
-        self.assertIn("已拒绝", text)
-
-    async def test_diary_lookup_ignores_other_conversations_and_pending_sources(self):
-        proposals = [
-            {"id": 10, "metadata": {"source_command": "diary", "conversation_id": 8}},
-            {"id": 11, "metadata": {"source_command": "other", "conversation_id": 7}},
-            {"id": 12, "metadata": {"source_command": "diary", "conversation_id": 7}},
-        ]
-        with patch.object(
-            main, "get_pending_long_term_memory_operations",
-            AsyncMock(return_value=proposals),
-        ):
-            result = await main._get_pending_diary_command_proposal(7)
-
-        self.assertEqual(12, result["id"])
+    async def test_retired_diary_commands_are_not_registered(self):
+        for command in ("/diary", "/yes", "/no"):
+            self.assertIsNone(main._parse_gateway_command([
+                {"role": "user", "content": command},
+            ]))
 
     async def test_message_freezes_exact_last_visible_chat_messages(self):
         rows = [
@@ -201,6 +105,40 @@ class GatewayCommandExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("更精简", generate.await_args.kwargs["regeneration_instruction"])
         save.assert_awaited_once_with(7, "重新生成的摘要", 2)
 
+    async def test_compact_uses_all_current_messages_not_the_rolling_window(self):
+        rows = [
+            {"id": 1, "role": "user", "content": "rolled", "hidden": False},
+            {"id": 2, "role": "assistant", "content": "old", "hidden": False},
+            {"id": 3, "role": "user", "content": "active", "hidden": False},
+            {"id": 4, "role": "assistant", "content": "current", "hidden": False},
+        ]
+        generate = AsyncMock(return_value="完整摘要")
+        save = AsyncMock(return_value=5)
+        conv = {
+            "id": 7,
+            "context_mode": "window",
+            "temporary_summary_through_message_id": 2,
+        }
+        with patch.object(main, "CONTEXT_MANAGED", True), patch.object(
+            main, "MEMORY_ORGANIZER_ENABLED", True
+        ), patch.object(
+            main, "get_context_messages", AsyncMock(return_value=rows)
+        ), patch.object(
+            main, "get_conversation_handoff_summary", AsyncMock(return_value="旧交接摘要")
+        ), patch.object(
+            main, "_load_handoff_summary_runtime", AsyncMock(return_value={"model": "summary-model"})
+        ), patch.object(
+            main, "_generate_handoff_summary", generate
+        ), patch.object(
+            main, "save_conversation_handoff_command_summary", save
+        ):
+            result = await main._gateway_generate_compact(conv)
+
+        self.assertEqual(("完整摘要", 5, 4), result)
+        self.assertEqual([1, 2, 3, 4], [row["id"] for row in generate.await_args.args[0]])
+        self.assertEqual(0, generate.await_args.kwargs["max_input_chars"])
+        save.assert_awaited_once_with(7, "完整摘要", 4)
+
     async def test_compact_redo_requires_an_existing_frozen_snapshot(self):
         with patch.object(main, "CONTEXT_MANAGED", True), patch.object(
             main, "MEMORY_ORGANIZER_ENABLED", True
@@ -210,19 +148,19 @@ class GatewayCommandExecutionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, "请先使用 /compact"):
                 await main._gateway_generate_compact({"id": 7}, redo=True)
 
-    async def test_heartbeat_toggle_preserves_route_interval_and_model(self):
+    async def test_heartbeat_toggle_preserves_interval(self):
         save = AsyncMock(return_value={
             "enabled": True,
             "interval_minutes": 42,
-            "provider": "anthropic",
-            "model": "claude-test",
         })
         with patch.object(main, "_load_heartbeat_settings", AsyncMock(return_value={
             "enabled": False,
             "interval_minutes": 42,
-            "provider": "anthropic",
-            "model": "claude-test",
-        })), patch.object(main, "save_heartbeat_settings", save):
+        })), patch.object(main, "save_heartbeat_settings", save), patch.object(
+            main, "get_active_conversation", AsyncMock(return_value={
+                "last_route_provider": "anthropic",
+            })
+        ):
             text = await main._execute_gateway_command(
                 {"name": "heartbeat", "argument": "on"}, None
             )
@@ -231,8 +169,6 @@ class GatewayCommandExecutionTests(unittest.IsolatedAsyncioTestCase):
         save.assert_awaited_once_with(
             enabled=True,
             interval_minutes=42,
-            provider="anthropic",
-            model="claude-test",
         )
 
     async def test_switch_uses_persisted_summary_and_selection(self):
@@ -255,7 +191,6 @@ class GatewayCommandExecutionTests(unittest.IsolatedAsyncioTestCase):
         create.assert_awaited_once_with(
             7, "下一段", [11, 12], store_summary_in_flow=main.MEMORY_ENABLED,
             require_active_source=True,
-            extract_memories=main.MEMORY_ENABLED,
         )
 
     async def test_switch_without_summary_or_selection_creates_blank_conversation(self):
@@ -278,7 +213,6 @@ class GatewayCommandExecutionTests(unittest.IsolatedAsyncioTestCase):
         create.assert_awaited_once_with(
             7, "延续会话", [], store_summary_in_flow=main.MEMORY_ENABLED,
             require_active_source=True,
-            extract_memories=main.MEMORY_ENABLED,
         )
 
     async def test_switch_count_runs_compact_and_selection_shortcut(self):
@@ -305,7 +239,6 @@ class GatewayCommandExecutionTests(unittest.IsolatedAsyncioTestCase):
         create.assert_awaited_once_with(
             7, "快捷会话", [11, 12], store_summary_in_flow=main.MEMORY_ENABLED,
             require_active_source=True,
-            extract_memories=main.MEMORY_ENABLED,
         )
         self.assertIn("摘要 v3", text)
 

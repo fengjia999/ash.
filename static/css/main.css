@@ -462,29 +462,29 @@ input[type="checkbox"] {
     body {
         padding: 20px 16px;
     }
-
+    
     .toolbar {
         flex-direction: column;
         align-items: stretch;
         gap: 10px;
     }
-
+    
     .search-box {
         width: 100%;
     }
-
+    
     table {
         font-size: 13px;
     }
-
+    
     .content-cell {
         max-width: 180px;
     }
-
+    
     th, td {
         padding: 10px 8px;
     }
-
+    
     .source-col,
     .time-col {
         display: none;

@@ -8,6 +8,12 @@ class DashboardChatTests(unittest.IsolatedAsyncioTestCase):
     async def test_home_redirect_and_separate_health(self):
         self.assertEqual((await main.home()).headers['location'], '/dashboard')
 
+    async def test_dashboard_model_timeout_returns_a_manual_entry_fallback(self):
+        with patch.object(main, '_load_routed_models', AsyncMock(side_effect=TimeoutError)):
+            response = await main.dashboard_chat_models()
+        self.assertTrue(response['models_unavailable'])
+        self.assertEqual([], response['data'])
+
     async def test_chat_requires_dashboard_cookie_and_csrf(self):
         with patch.object(main, 'DASHBOARD_PASSWORD', 'test'):
             value, csrf = main._create_dashboard_session()
@@ -51,7 +57,7 @@ class ChatStreamTests(unittest.TestCase):
         if not shutil.which('node'):
             self.skipTest('Node required')
         source = (Path(__file__).resolve().parents[1] / 'static/js/context-chat.js').read_text()
-        script = "const document={addEventListener(){}};\n" + source + r'''
+        script = "const document={addEventListener(){}};const window={addEventListener(){}};\n" + source + r'''
 const assert = require('node:assert/strict');
 function stream(text) {
   const bytes = new TextEncoder().encode(text);
@@ -64,6 +70,9 @@ function stream(text) {
   let text='';
   await consumeChatStream(stream('data: {"choices":[{"delta":{"content":"你好"}}]}\r\n\r\ndata: [DONE]\r\n\r\n'),delta=>text+=delta);
   assert.equal(text,'你好');
+  let thought='';
+  await consumeChatStream(stream('data: {"choices":[{"delta":{"reasoning_content":"先思考"}}]}\n\ndata: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.summary","summary":"再检查"},{"type":"reasoning.encrypted","data":"secret"}]}}]}\n\ndata: [DONE]\n\n'),()=>{},delta=>thought+=delta);
+  assert.equal(thought,'先思考再检查');
   await assert.rejects(consumeChatStream(stream('data: {"choices":[]}\n\n'),()=>{}),/连接中断/);
   await assert.rejects(consumeChatStream(stream('data: {"error":{"message":"bad upstream"}}\n\n'),()=>{}),/bad upstream/);
 })();
@@ -71,52 +80,30 @@ function stream(text) {
         result = subprocess.run(['node','-e',script],capture_output=True,text=True,timeout=10)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 
-    def test_model_selection_prefers_route_compatible_models(self):
+    def test_chat_reads_server_configuration_without_changing_suppliers(self):
         import shutil
         import subprocess
         from pathlib import Path
         if not shutil.which('node'):
             self.skipTest('Node required')
         source = (Path(__file__).resolve().parents[1] / 'static/js/context-chat.js').read_text()
-        load_config = 'async function loadChatConfig(' + source.split(
-            'async function loadChatConfig(', 1
-        )[1].split('async function changeChatRoute(', 1)[0]
-        script = r'''
-const assert = require('node:assert/strict');
-const elements = {
-  chatRoute: {value: ''},
-  chatProvider: {value: '', replaceChildren(){}, add(){}},
-  chatModels: {replaceChildren(){}, appendChild(){}},
-  chatModel: {value: ''},
-  chatStatus: {textContent: ''},
-};
-const chatElement = id => elements[id] || {disabled: false};
-const Option = function(text, value) { this.text = text; this.value = value; };
-let chatConfigBusy = false;
-let chatConfigured = false;
-const updateChatAvailability = () => {};
-const responses = [
-  {provider: 'openai'},
-  {profiles: [], effective: {name: 'env'}},
-  {default_model: 'claude-sonnet-4-5', data: [{id: 'gpt-5'}]},
-  {provider: 'openai'},
-  {profiles: [], effective: {name: 'env'}},
-  {default_model: 'claude-sonnet-4-5', data: [{id: 'gpt-5'}]},
-  {provider: 'anthropic'},
-  {profiles: [], effective: {name: 'env'}},
-  {default_model: 'claude-sonnet-4-5', data: [{id: 'claude-sonnet-4-5'}]},
-];
-const chatJson = async () => responses.shift();
-''' + load_config + r'''
-(async () => {
-  await loadChatConfig();
-  assert.equal(elements.chatModel.value, 'gpt-5');
-  elements.chatModel.value = 'custom/provider-model';
-  await loadChatConfig();
-  assert.equal(elements.chatModel.value, 'custom/provider-model');
-  await loadChatConfig(true);
-  assert.equal(elements.chatModel.value, 'claude-sonnet-4-5');
-})().catch(error => { console.error(error); process.exitCode = 1; });
-'''
-        result = subprocess.run(['node', '-e', script], capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        loader = 'async function loadChatConfig(' + source.split('async function loadChatConfig(', 1)[1].split('// Construct Markdown nodes', 1)[0]
+        script = r"""
+const assert=require('node:assert/strict');
+let chatConfigGeneration=0,chatConfigBusy=false,chatConfigured=false,chatEffectiveModel='';
+let config={model:'fixed-chat-model',provider:'anthropic',ready:true};
+const elements={chatStatus:{}};
+const chatElement=id=>elements[id];
+const calls=[];const chatJson=async url=>{calls.push(url);return config;};
+const updateChatAvailability=()=>{};
+const window={AshChatUI:{setModelLabel:model=>{elements.label=model;}}};
+""" + loader + r"""
+(async()=>{
+ await loadChatConfig();
+ assert.equal(chatEffectiveModel,'fixed-chat-model');assert.equal(chatConfigured,true);
+ assert.deepEqual(calls,['/api/chat/config']);assert.equal(elements.label,'fixed-chat-model');
+ config={model:'',provider:'openai',ready:false};await loadChatConfig();assert.equal(chatConfigured,false);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        result=subprocess.run(['node','-e',script],capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)

@@ -1,0 +1,37 @@
+/* Merle's loose paper wall, using Ash's grayscale palette and shared sheet. */
+.phone-noteboard { position:relative; padding:0 0 24px; }
+.phone-note-toolbar { position:sticky; top:0; z-index:1000001; display:flex; justify-content:flex-end; align-items:center; gap:12px; padding:8px 16px; background:var(--phone-bg); }
+.phone-note-toolbar button { min-width:44px; min-height:44px; padding:8px; background:none; border:0; color:var(--phone-ink); font:inherit; cursor:pointer; }
+.phone-note-toolbar button:disabled { opacity:.35; }
+.phone-note-toolbar svg { width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.6; }
+#phone-note-status { margin:0 20px; color:var(--phone-muted); font-size:15px; }
+#phone-note-status:empty { display:none; }
+#phone-note-retry { display:block; margin:8px auto; min-height:44px; border:0; background:none; color:var(--phone-ink); font-size:16px; }
+#phone-note-surface { position:relative; width:100%; min-height:580px; overflow:hidden; background-image:radial-gradient(circle,var(--phone-line) .6px,transparent .8px); background-size:23px 19px; }
+#phone-notes-layer { position:absolute; inset:0; pointer-events:none; }
+#phone-note-empty { padding:80px 20px; text-align:center; color:var(--phone-muted); font-size:16px; }
+.phone-wall-note { --note-paper:var(--phone-card); --note-tape:color-mix(in srgb,var(--phone-wash) 85%,transparent); position:absolute; display:flex; flex-direction:column; width:46%; min-width:148px; max-width:220px; min-height:146px; padding:20px 16px 13px; border:1px solid var(--phone-line); border-radius:6px; color:var(--phone-ink); background:var(--note-paper); box-shadow:0 3px 10px #00000012; text-align:left; cursor:grab; pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; transform:rotate(var(--note-rotation,0deg)); transform-origin:50% 8%; }
+.phone-wall-note.shape-square { width:40%; max-width:190px; min-height:158px; }
+.phone-wall-note.shape-wide { width:58%; min-width:176px; max-width:270px; min-height:116px; }
+.phone-wall-note.note-lined { background-image:repeating-linear-gradient(to bottom,transparent 0 23px,var(--phone-line) 23px 24px); background-position:0 37px; }
+.phone-wall-note::before,.phone-wall-note::after { content:''; position:absolute; z-index:3; background:var(--note-tape); border:1px solid var(--phone-line); border-radius:2px; pointer-events:none; }
+.phone-wall-note::before { top:-12px; left:50%; width:14px; height:30px; margin-left:-7px; transform:rotate(2deg); }
+.phone-wall-note::after { display:none; }
+.phone-wall-note.tape-horizontal::before { top:-7px; width:48px; height:15px; margin-left:-24px; transform:rotate(-2deg); }
+.phone-wall-note.tape-left::before { top:-8px; left:-12px; width:44px; height:14px; margin:0; transform:rotate(-38deg); }
+.phone-wall-note:is(.tape-right,.tape-double)::before { top:-8px; right:-12px; left:auto; width:44px; height:14px; margin:0; transform:rotate(38deg); }
+.phone-wall-note.tape-double::after { bottom:-7px; left:-13px; width:44px; height:14px; display:block; transform:rotate(38deg); }
+.phone-wall-note.is-dragging { cursor:grabbing; transform:rotate(0deg); box-shadow:0 5px 16px #00000024; }
+.phone-wall-author { display:block; margin:0 0 10px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; line-height:1.5; color:var(--phone-muted); }
+.phone-wall-note strong { margin:0 0 7px; font-size:16px; font-weight:600; line-height:1.6; }
+.phone-wall-note strong,.phone-wall-copy { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; }
+.phone-wall-copy { -webkit-line-clamp:5; white-space:pre-wrap; font-size:15px; line-height:1.65; }
+.phone-wall-note time { display:block; margin-top:16px; color:var(--phone-muted); font-size:12px; }
+#phone-note-editor input,#phone-note-editor textarea { display:block; width:100%; box-sizing:border-box; border:1px solid var(--phone-line); border-radius:12px; padding:14px; background:var(--phone-card); color:var(--phone-ink); font:inherit; font-size:16px; }
+#phone-note-editor textarea { margin-top:12px; min-height:160px; height:28dvh; resize:vertical; line-height:1.8; }
+#phone-note-error { color:var(--danger,#b84242); font-size:14px; }
+.phone-note-editor-actions { display:flex; justify-content:space-between; gap:12px; margin-top:16px; }
+.phone-note-editor-actions button { min-height:44px; padding:10px 22px; border:1px solid var(--phone-line); border-radius:12px; font:inherit; cursor:pointer; }
+#phone-note-delete { background:var(--phone-card); color:var(--danger,#b84242); }
+#phone-note-save { margin-left:auto; }
+.phone-note-editor-actions button:disabled { opacity:.5; }

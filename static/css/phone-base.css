@@ -1,0 +1,53 @@
+/* Shared phone primitives. Paper applications declare their own appearance locally. */
+:root {
+    color-scheme:light;
+    --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    --font-mono:ui-monospace,'SFMono-Regular',Consolas,monospace;
+}
+:root[data-theme="dark"] { color-scheme:dark; }
+*, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+html { font-size:14px; touch-action:manipulation; }
+body { font-family:var(--font-ui); line-height:1.6; -webkit-font-smoothing:antialiased; }
+button,input,select,textarea { font:inherit; color:inherit; }
+button { border:0; background:transparent; cursor:pointer; }
+button:disabled { cursor:default; opacity:.45; }
+[hidden] { display:none !important; }
+.section { display:none; min-width:0; max-width:100%; }
+.section.active { display:block; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+.control-input,.textarea,.search-input {
+    min-width:0; max-width:100%; padding:10px 12px; border:1px solid var(--phone-line);
+    border-radius:10px; background:var(--phone-card); color:var(--phone-ink); font:14px/1.5 var(--font-ui);
+}
+.control-input::placeholder,.textarea::placeholder { color:var(--phone-muted); }
+.textarea { width:100%; resize:vertical; }
+.btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 14px;
+    border:1px solid var(--phone-line); border-radius:10px; background:var(--phone-wash);
+    color:var(--phone-ink); font:14px/1.4 var(--font-ui); white-space:nowrap; cursor:pointer;
+}
+.btn-primary { background:var(--phone-accent); color:var(--phone-on-accent,#fff); border-color:var(--phone-accent); }
+.btn-danger { color:#bd3333; border-color:color-mix(in srgb,currentColor 30%,transparent); background:transparent; }
+:root[data-theme="dark"] .btn-danger { color:#ef7777; }
+.btn-sm { padding:6px 10px; font-size:12px; }
+.btn-icon { display:inline-grid; place-items:center; padding:8px; }
+.heartbeat-setting-field { min-width:0; }
+.heartbeat-setting-field > span { display:block; margin-bottom:6px; color:var(--phone-muted); font-size:12px; }
+.heartbeat-setting-field .control-input { width:100%; }
+.heartbeat-settings-head,.heartbeat-settings-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.heartbeat-settings-actions { margin-top:16px; min-height:36px; }
+.heartbeat-settings-actions > span { font-size:12px; color:var(--phone-muted); overflow-wrap:anywhere; }
+.msg-success { color:#75876d; }
+.msg-error { color:#b66b60; }
+.conversation-hub-section { height:100%; position:relative; }
+.conversation-detail-layer { position:absolute; inset:0; z-index:1; display:none; }
+.conversation-detail-layer.open { display:flex; }
+.conversation-detail-dialog { position:relative; width:100%; height:100%; overflow:hidden; background:var(--phone-bg); }
+.conversation-detail-frame { display:block; width:100%; height:100%; border:0; background:var(--phone-bg); }
+.conversation-frame-status {
+    position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:12px; padding:24px; background:var(--phone-bg); color:var(--phone-muted); text-align:center; font-size:13px;
+}
+.conversation-frame-status[data-state="slow"] { inset:auto 12px 12px; flex-direction:row; padding:10px 12px; border:1px solid var(--phone-line); border-radius:12px; }
+.conversation-frame-status button { padding:7px 14px; border:1px solid var(--phone-line); border-radius:10px; color:var(--phone-ink); background:var(--phone-card); }

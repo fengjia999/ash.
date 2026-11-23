@@ -1,0 +1,247 @@
+/* Recall has its own page; provider credentials live under suppliers. */
+#section-recall .settings-feature-card {
+  --recall-field: var(--phone-card);
+  --recall-line: var(--phone-line);
+  --recall-text: var(--phone-ink);
+  --recall-secondary: var(--phone-muted);
+  --recall-muted: var(--phone-muted);
+  --recall-focus: var(--phone-accent);
+  --recall-toggle: var(--phone-accent);
+  --recall-tint: var(--phone-wash);
+  --recall-accent: var(--phone-accent);
+  --recall-off: var(--phone-wash);
+  --recall-switch-line: #b7aea0;
+  --recall-thumb: var(--phone-card);
+  --recall-success: #76815f;
+  --recall-success-bg: var(--phone-wash);
+  --recall-button: var(--phone-wash);
+  --recall-button-line: var(--phone-line);
+  --recall-danger: #8e6750;
+  --recall-danger-bg: #eee6d7;
+  padding: 0;
+  overflow: hidden;
+  border-color: var(--recall-line);
+  border-radius: 0;
+  color: var(--recall-text);
+  font: 15px/1.5 var(--font-ui);
+}
+#section-recall #history-recall-settings { min-width: 0; }
+#section-recall #history-recall-settings .recall-status {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 3px;
+  background: var(--recall-field);
+  color: var(--recall-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+#section-recall #history-recall-settings .recall-status[data-active="true"] {
+  background: var(--recall-success-bg);
+  color: var(--recall-success);
+}
+#section-recall #history-recall-settings .recall-help { margin: 0 0 14px; color: var(--recall-muted); }
+#section-recall #history-recall-settings .control-input {
+  width: 100%;
+  height: 46px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--recall-line);
+  border-radius: 3px;
+  background: var(--recall-field);
+  color: var(--recall-text);
+  box-shadow: none;
+  font: inherit;
+  font-size: 16px;
+}
+#section-recall #history-recall-settings input::placeholder { color: var(--recall-muted); opacity: 1; }
+#section-recall #history-recall-settings .btn {
+  min-height: 40px;
+  padding: 7px 22px;
+  border: 1px solid var(--recall-button-line);
+  border-radius: 3px;
+  background: var(--recall-button);
+  color: var(--recall-text);
+  box-shadow: none;
+  transform: none;
+  font: 400 16px/1.5 var(--font-ui);
+  letter-spacing: 0;
+}
+#section-recall #history-recall-settings .btn:hover { background: var(--recall-field); }
+#section-recall #history-recall-settings .btn-danger { color: var(--recall-danger); background: var(--recall-danger-bg); border-color: var(--recall-button-line); }
+#section-recall #history-recall-settings .btn:disabled { opacity: .45; cursor: default; }
+#section-recall #history-recall-settings .recall-section { padding: 18px 22px; border-top: 1px solid var(--recall-line); }
+#section-recall #history-recall-settings .recall-section-label {
+  margin: 0 0 14px;
+  color: var(--recall-muted);
+  font: 500 12px/1.5 var(--font-ui);
+  letter-spacing: 0;
+}
+#section-recall #history-recall-settings .recall-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  color: var(--recall-text);
+  font: inherit;
+  cursor: pointer;
+}
+#section-recall #history-recall-settings .recall-setting-copy { min-width: 0; }
+#section-recall #history-recall-settings .recall-setting-copy strong { display: block; font-size: 17px; font-weight: 500; }
+#section-recall #history-recall-settings .recall-setting-copy > span { display: block; margin-top: 3px; color: var(--recall-secondary); font-size: 14px; }
+#section-recall #history-recall-settings .recall-fallback {
+  margin: 14px 0 0 5px;
+  padding: 12px 14px;
+  border-left: 2px solid var(--recall-accent);
+  border-radius: 0 3px 3px 0;
+  background: var(--recall-tint);
+}
+#section-recall #history-recall-settings .recall-switch { position: relative; display: inline-block; flex: 0 0 44px; width: 44px; height: 26px; }
+#section-recall #history-recall-settings .recall-switch input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
+#section-recall #history-recall-settings .recall-switch-track { position: absolute; inset: 0; border: 1px solid var(--recall-switch-line); border-radius: 20px; background: var(--recall-off); }
+#section-recall #history-recall-settings .recall-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #00000012;
+  border-radius: 50%;
+  background: var(--recall-thumb);
+  box-sizing: border-box;
+  transition: transform 120ms ease;
+}
+#section-recall #history-recall-settings .recall-switch input:checked + .recall-switch-track { background: var(--recall-toggle); border-color: var(--recall-toggle); }
+#section-recall #history-recall-settings .recall-switch input:checked + .recall-switch-track::after { transform: translateX(18px); background: var(--recall-thumb); }
+#section-recall #history-recall-settings .recall-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+#section-recall #history-recall-settings .recall-section-heading .recall-section-label { margin: 0; }
+#section-recall #history-recall-settings .recall-fields { overflow: hidden; border: 1px solid var(--recall-line); border-radius: 3px; background: var(--recall-field); }
+#section-recall #history-recall-settings .recall-field-row { display: flex; align-items: center; gap: 14px; margin: 0; padding: 0 14px; color: var(--recall-muted); font: inherit; }
+#section-recall #history-recall-settings .recall-field-row + .recall-field-row { border-top: 1px solid var(--recall-line); }
+#section-recall #history-recall-settings .recall-field-row > span { flex: 0 0 28px; font-size: 13px; }
+#section-recall #history-recall-settings .recall-field-row input {
+  min-width: 0;
+  width: 100%;
+  height: 42px;
+  margin: 0;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--recall-text);
+  box-shadow: none;
+  font: inherit;
+  font-size: 16px;
+}
+#section-recall #history-recall-settings .recall-save-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; }
+#section-recall #history-recall-settings .recall-save-actions .recall-message { flex: 1; }
+#section-recall #history-recall-settings .recall-message { color: var(--recall-secondary); font-size: 12px; overflow-wrap: anywhere; }
+#section-recall #history-recall-settings :is(button, input, summary):focus-visible { outline: 2px solid var(--recall-focus); outline-offset: 3px; }
+#section-recall #history-recall-settings .recall-switch input:focus-visible + .recall-switch-track { outline: 2px solid var(--recall-focus); outline-offset: 3px; }
+#section-recall #history-recall-settings .recall-field-row:focus-within { outline: 2px solid var(--recall-focus); outline-offset: -2px; }
+#section-recall #history-recall-settings .recall-field-row input:focus-visible { outline: none; }
+#section-recall .settings-feature-card > .heartbeat-settings-panel { padding: 20px 22px; border-top: 1px solid var(--recall-line); }
+@media (max-width: 380px) {
+  #section-recall #history-recall-settings .recall-fallback { padding: 10px; }
+  #section-recall #history-recall-settings .recall-status { padding-inline: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { #section-recall #history-recall-settings .recall-switch-track::after { transition: none; } }
+
+/* Inspect the same evidence and ranking used by automatic recall. */
+.memory-retrieval { margin:8px 0 24px; color:var(--phone-ink); }
+.memory-retrieval > h3 { margin:0 0 16px; font:600 22px/1.3 var(--font-ui); }
+
+.memory-search-row { display:flex; gap:8px; margin:12px 0; }
+.memory-search-row input { flex:1; min-width:0; width:100%; padding:10px 12px; border:1px solid var(--phone-line); border-radius:10px; background:var(--phone-card); color:var(--phone-ink); font:16px var(--font-ui); }
+.memory-retrieval button { min-height:44px; padding:8px 12px; border:0; border-radius:10px; background:var(--phone-wash); color:var(--phone-ink); font:14px var(--font-ui); }
+.memory-retrieval button:disabled { opacity:.5; }
+.memory-weights summary, #memory-injection-preview summary { padding:10px 0; cursor:pointer; font-size:13px; }
+.memory-weights label { display:grid; grid-template-columns:80px minmax(0,1fr) 36px; gap:12px; align-items:center; min-height:44px; font-size:13px; }
+.memory-weights input { width:100%; min-width:0; accent-color:var(--phone-ink); }
+.memory-weights output { text-align:right; font-variant-numeric:tabular-nums; color:var(--phone-muted); }
+.memory-weights p, #memory-search-status { color:var(--phone-muted); font-size:12px; line-height:1.6; margin:10px 0; }
+.memory-search-result { padding:16px 0; border-top:1px solid var(--phone-line); }
+.memory-search-result header { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:var(--phone-muted); margin-bottom:16px; }
+.memory-search-result blockquote { margin:10px 0; padding:0 0 0 12px; border-left:2px solid var(--phone-line); white-space:pre-wrap; overflow-wrap:anywhere; font-size:16px; line-height:1.8; }
+.memory-search-result small { display:block; font-size:11px; color:var(--phone-muted); margin-bottom:3px; }
+.memory-search-result details { font-size:12px; color:var(--phone-muted); line-height:1.7; }
+.memory-search-result a { color:inherit; text-decoration:underline; text-underline-offset:3px; }
+#memory-injection-preview pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:360px; overflow:auto; font-size:12px; line-height:1.6; }
+
+.memory-retrieval #memory-search-button { background:var(--phone-ink); color:var(--phone-card); padding-inline:16px; }
+.memory-search-result { margin-top:12px; padding:22px 0; }
+.memory-search-result small { margin-bottom:6px; }
+.memory-search-result summary { cursor:pointer; padding:8px 0; }
+.memory-search-result dl { display:grid; grid-template-columns:100px 1fr; gap:6px 12px; margin:8px 0; font-variant-numeric:tabular-nums; }
+.memory-search-result dd { margin:0; }
+.memory-search-result:has(.memory-expand):not(.is-expanded) .memory-excerpt { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden; }
+.memory-search-result:not(.is-expanded) blockquote:nth-of-type(n+3) { display:none; }
+.memory-retrieval .memory-expand { background:transparent; color:var(--phone-muted); font-size:12px; padding:4px 0; }
+.recall-connection-settings { border-top:1px solid var(--phone-line); padding-top:8px; }
+.recall-connection-settings > summary { padding:14px 0; color:var(--phone-muted); font-size:14px; cursor:pointer; }
+#memory-search-status:empty { display:none; }
+.memory-feedback { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:14px 0 6px; }
+.memory-retrieval .memory-feedback button { display:grid; place-items:center; width:44px; height:44px; min-height:44px; padding:0; border-radius:50%; background:transparent; border:0; color:var(--phone-muted); }
+.memory-retrieval .memory-feedback button[aria-pressed="true"] { background:var(--phone-ink); color:var(--phone-card); border-color:transparent; }
+.memory-feedback span { font-size:11px; color:var(--phone-muted); }
+
+#section-recall [hidden] { display:none !important; }
+.memory-page-heading,.memory-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0 24px; }
+.memory-page-heading h3 { margin:0; font-size:27px; letter-spacing:-.03em; }
+.memory-panel-heading h3 { margin:0; font-size:22px; }
+.memory-page-heading button,.memory-panel-heading button { background:transparent; color:var(--phone-muted); border:0; min-height:44px; padding:8px; font-size:13px; }
+.memory-search-result { padding:20px 18px 12px; margin:16px 0; background:var(--phone-card); border:1px solid var(--phone-line); border-radius:16px; }
+.memory-search-result blockquote { border:0; padding:0; margin:18px 0; }
+.memory-search-result small { font-size:11px; letter-spacing:.04em; }
+.memory-feedback { border-top:1px solid var(--phone-line); padding-top:12px; }
+.memory-retrieval .memory-detail-button { background:transparent; font-size:11px; color:var(--phone-muted); padding:4px 0; }
+.recall-connection-settings { border:0; padding:0; }
+#recall-detail-dialog { position:fixed; inset:0; margin:auto; width:calc(100% - 32px); max-width:460px; max-height:75dvh; overflow:auto; padding:20px; border:1px solid var(--phone-line); border-radius:20px; background:var(--phone-card); color:var(--phone-ink); }
+#recall-detail-dialog::backdrop { background:#0005; }
+#recall-detail-dialog header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+#recall-detail-dialog h3 { margin:0; font-size:18px; }
+#recall-detail-dialog header button { width:40px; height:40px; border:0; border-radius:50%; background:var(--phone-wash); color:var(--phone-ink); font-size:24px; }
+.recall-dialog-content { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.8; }
+.recall-dialog-content dl { display:grid; grid-template-columns:100px 1fr; gap:12px; margin:0; white-space:normal; }
+.recall-dialog-content dt { color:var(--phone-muted); }
+.recall-dialog-content dd { margin:0; }
+
+.memory-retrieval #memory-injection-preview button { padding:4px 0; min-height:36px; background:transparent; color:var(--phone-muted); font-size:12px; }
+
+.memory-feedback svg { display:block; }
+.memory-feedback [data-feedback="useless"] svg { transform:rotate(180deg); }
+
+/* A small desktop printer, with recall results feeding from its lower slot. */
+.recall-printer { position:relative; max-width:380px; margin:32px auto 0; padding:20px 22px 36px; border:1px solid #c9c9c7; border-radius:24px 24px 16px 16px; background:linear-gradient(145deg,#fafaf8,#e4e4e1); box-shadow:inset 0 2px 1px #fff, inset 0 -6px 0 #00000008,0 12px 24px #0000000d; }
+.recall-printer-top { display:flex; align-items:center; justify-content:space-between; margin:0 2px 18px; color:#80807c; font:10px/1.4 var(--font-ui); letter-spacing:.15em; }
+.recall-printer-light { width:5px; height:5px; border-radius:50%; background:#92928c; box-shadow:0 0 0 3px #00000005; }
+.recall-printer .memory-search-row { display:block; margin:0; padding:12px 14px 14px; border:1px solid #b6b6b1; border-radius:9px; background:#e1e1da; box-shadow:inset 0 2px 5px #00000015,0 1px #fff; }
+.recall-screen-label { display:block; margin-bottom:10px; color:#797971; font:9px/1.4 monospace; letter-spacing:.2em; }
+.recall-printer .memory-search-row input { display:block; height:40px; padding:0; border:0; border-radius:0; background:transparent; color:#373733; box-shadow:none; font:16px/1.5 var(--font-ui); }
+.recall-printer .memory-search-row input::placeholder { color:#818179; }
+.recall-printer .memory-search-row:focus-within { outline:2px solid #92928a; outline-offset:3px; }
+.recall-printer .memory-search-row input:focus { outline:none; }
+.recall-printer-controls { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:18px 0; }
+.memory-retrieval .recall-printer #memory-search-button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:46px; padding:10px 18px; border:1px solid #9e3d36; border-radius:12px; color:#fff7f2; background:linear-gradient(#c9665b,#b34940); box-shadow:inset 0 1px #ffffff50,0 3px 0 #873c36,0 5px 8px #0002; font-weight:600; }
+.memory-retrieval .recall-printer #memory-search-button:active { transform:translateY(2px); box-shadow:inset 0 1px #ffffff30,0 1px 0 #873c36; }
+.memory-retrieval .recall-printer #memory-injection-preview button { color:#747470; }
+.recall-printer-vent { height:9px; width:44px; background:repeating-linear-gradient(90deg,#0002 0 2px,transparent 2px 5px); border-radius:2px; }
+.recall-printer-slot { position:absolute; bottom:11px; left:18px; right:18px; height:8px; border-radius:5px; background:#31312f; box-shadow:0 1px #fff,inset 0 2px 3px #0008; }
+#recall-panel-search #memory-search-status { max-width:324px; margin:18px auto 12px; padding:0 4px; }
+.recall-paper-feed { position:relative; max-width:324px; margin:0 auto; padding:0 4px 12px; }
+.recall-paper-feed .memory-search-result { position:relative; margin:0 0 18px; padding:22px 18px 24px; border:0; border-radius:0; background:#fffefb; color:#30302e; box-shadow:0 3px 12px #00000012; animation:recall-paper-print .45s ease-out both; }
+.recall-paper-feed .memory-search-result::after { content:""; position:absolute; bottom:-5px; left:0; right:0; height:6px; background:linear-gradient(135deg,#fffefb 25%,transparent 25%) -3px 0/10px 10px,linear-gradient(225deg,#fffefb 25%,transparent 25%) -3px 0/10px 10px; }
+.recall-paper-feed .memory-search-result header { padding-bottom:14px; border-bottom:1px dashed #c6c6c0; font-variant-numeric:tabular-nums; }
+.recall-paper-feed .memory-search-result :is(header,small,.memory-detail-button,.memory-expand,.memory-feedback button,.memory-feedback span) { color:#7e7e76; }
+.recall-paper-feed .memory-feedback { border-top:1px dashed #cecec7; }
+.recall-paper-feed .memory-search-result blockquote { font-size:15px; line-height:1.8; }
+:root[data-theme="dark"] .recall-printer { border-color:#484846; background:linear-gradient(145deg,#474745,#30302f); box-shadow:inset 0 1px #ffffff20,inset 0 -6px #0002,0 12px 24px #0002; }
+:root[data-theme="dark"] .recall-printer .memory-search-row { border-color:#252523; background:#c4c4ba; box-shadow:inset 0 2px 5px #0003,0 1px #ffffff15; }
+:root[data-theme="dark"] .recall-printer-top,:root[data-theme="dark"] .memory-retrieval .recall-printer #memory-injection-preview button { color:#b5b5ad; }
+:root[data-theme="dark"] .recall-printer-slot { box-shadow:0 1px #ffffff18,inset 0 2px 3px #0008; background:#181817; }
+:root[data-theme="dark"] .recall-paper-feed .memory-search-result { background:#deddd5; }
+:root[data-theme="dark"] .recall-paper-feed .memory-search-result::after { background:linear-gradient(135deg,#deddd5 25%,transparent 25%) -3px 0/10px 10px,linear-gradient(225deg,#deddd5 25%,transparent 25%) -3px 0/10px 10px; }
+@keyframes recall-paper-print { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }
+@media (prefers-reduced-motion:reduce) { .recall-paper-feed .memory-search-result { animation:none; } }

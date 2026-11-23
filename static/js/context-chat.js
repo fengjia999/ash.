@@ -3,84 +3,55 @@ let chatBusy = false;
 let chatConfigBusy = false;
 let chatController = null;
 let chatConfigured = false;
+let chatConfigGeneration = 0;
+let chatEffectiveModel = "";
 const chatElement = id => document.getElementById(id);
 function isChatBusy() { return chatBusy; }
 
-async function chatJson(url, options = {}) {
-  const response = await api(url, options);
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.error) throw new Error(typeof data.error === 'string' ? data.error : `请求失败 (${response.status})`);
-  return data;
+async function chatJson(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await api(url, {...options, signal: controller.signal});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.error) throw new Error(typeof data.error === 'string' ? data.error : `请求失败 (${response.status})`);
+    return data;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('请求等待超时，请刷新核对结果后重试');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 function updateChatAvailability() {
   if (!chatElement('sendBtn')) return;
   const active = !!currentConversationOverview?.is_active;
-  chatElement('sendBtn').disabled = chatBusy || chatConfigBusy || !active || !chatConfigured;
+  chatElement('sendBtn').disabled = chatBusy || chatConfigBusy || !active || !chatConfigured || !chatEffectiveModel;
   chatElement('appendBtn').disabled = chatBusy;
-  chatElement('activateChat').hidden = active;
-  chatElement('activateChat').disabled = chatBusy || chatConfigBusy;
-  for (const id of ['chatRoute', 'chatProvider', 'chatModel', 'refreshModels']) {
-    chatElement(id).disabled = chatBusy || chatConfigBusy;
-  }
+  chatElement('phone-chat-continue').disabled = chatBusy || chatConfigBusy;
   chatElement('stopChat').hidden = !chatBusy;
   chatElement('msgInput').disabled = chatBusy;
   if (!chatBusy && !chatConfigBusy) chatElement('composerHint').textContent = active
-    ? 'Enter 发送 · Shift+Enter 换行 · 供应商切换对整个网关生效'
+    ? 'Enter 发送 · Shift+Enter 换行'
     : '正在浏览历史上下文；激活此会话后可继续聊天';
+  window.AshChatUI?.syncState();
 }
-async function loadChatConfig(preferAvailableModel = false) {
-  chatConfigBusy = true;
-  updateChatAvailability();
+async function loadChatConfig() {
+  const generation = ++chatConfigGeneration;
+  chatConfigBusy = true; updateChatAvailability();
   try {
-    const [route, suppliers, models] = await Promise.all([
-      chatJson('/api/route-settings'), chatJson('/api/openai-providers'), chatJson('/api/chat/models'),
-    ]);
-    chatElement('chatRoute').value = route.provider;
-    const select = chatElement('chatProvider');
-    select.replaceChildren();
-    const profiles = suppliers.profiles || [];
-    if (!profiles.some(p => p.is_active)) {
-      select.add(new Option(suppliers.effective?.name || '环境变量', ''));
-    }
-    for (const profile of profiles) select.add(new Option(profile.name, String(profile.id)));
-    select.value = suppliers.effective?.id == null ? '' : String(suppliers.effective.id);
-    const availableModels = (models.data || []).map(model => model.id).filter(Boolean);
-    const datalist = chatElement('chatModels');
-    datalist.replaceChildren();
-    for (const modelId of availableModels) datalist.appendChild(new Option(modelId, modelId));
-    const input = chatElement('chatModel');
-    const currentModel = input.value.trim();
-    if (!currentModel || (preferAvailableModel && availableModels.length && !availableModels.includes(currentModel))) {
-      input.value = availableModels.includes(models.default_model)
-        ? models.default_model
-        : availableModels[0] || models.default_model || '';
-    }
-    chatConfigured = true;
-    const missing = availableModels.length && !availableModels.includes(input.value);
-    chatElement('chatStatus').textContent = missing ? '当前模型不在列表中，请选择或确认模型 ID' : '模型可从列表选择，也可手动填写';
+    const config = await chatJson('/api/chat/config');
+    if (generation !== chatConfigGeneration) return;
+    chatEffectiveModel = config.model || '';
+    chatConfigured = Boolean(config.ready && chatEffectiveModel);
+    window.AshChatUI?.setModelLabel(chatEffectiveModel);
+    chatElement('chatStatus').textContent = chatConfigured ? '正在使用 Ash 的聊天配置' : '请在模型供应商中保存 API 和聊天模型';
   } catch (error) {
-    chatConfigured = false;
-    chatElement('chatStatus').textContent = error.message + '，请刷新重试';
+    if (generation !== chatConfigGeneration) return;
+    chatConfigured = false; chatElement('chatStatus').textContent = error.message + '，请稍后重试';
   } finally {
-    chatConfigBusy = false;
-    updateChatAvailability();
+    if (generation === chatConfigGeneration) { chatConfigBusy = false; updateChatAvailability(); }
   }
-}
-async function changeChatRoute(kind) {
-  chatConfigBusy = true;
-  updateChatAvailability();
-  let errorMessage = '';
-  try {
-    if (kind === 'route') await chatJson('/api/route-settings', {
-      method: 'PUT', body: JSON.stringify({provider: chatElement('chatRoute').value}),
-    });
-    else if (chatElement('chatProvider').value) {
-      await chatJson(`/api/openai-providers/${encodeURIComponent(chatElement('chatProvider').value)}/activate`, {method: 'POST'});
-      await chatJson('/api/route-settings', {method: 'PUT', body: JSON.stringify({provider: 'openai'})});
-    }
-  } catch (error) { errorMessage = error.message; }
-  await loadChatConfig(true);
-  if (errorMessage) chatElement('chatStatus').textContent = errorMessage;
 }
 
 // Construct Markdown nodes without interpreting model output as HTML.
@@ -105,7 +76,15 @@ function renderChatText(target, text) {
   }
 }
 
-async function consumeChatStream(response, onDelta) {
+function chatReasoningText(message) {
+  const text = message?.reasoning_content || message?.reasoning;
+  if (typeof text === 'string' && text) return text;
+  return (Array.isArray(message?.reasoning_details) ? message.reasoning_details : [])
+    .filter(block => ['reasoning.text','reasoning.summary'].includes(block?.type))
+    .map(block => block.text || block.summary || '').filter(text => typeof text === 'string').join('\n\n');
+}
+
+async function consumeChatStream(response, onDelta, onReasoning = () => {}) {
   if (!response.body) throw new Error('浏览器无法读取回复流');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -117,6 +96,8 @@ async function consumeChatStream(response, onDelta) {
     const payload = JSON.parse(data);
     if (payload.error) throw new Error(typeof payload.error === 'string' ? payload.error : payload.error.message || '上游返回错误');
     const choice = payload.choices?.[0];
+    const reasoning = chatReasoningText(choice?.delta);
+    if (reasoning) onReasoning(reasoning);
     if (choice?.delta?.content) onDelta(choice.delta.content);
     if (choice?.delta?.tool_calls?.length) throw new Error('此会话请求了前端工具，请回到原客户端完成工具调用，或新建网页会话');
   }
@@ -144,7 +125,7 @@ async function sendChat(trigger) {
   const content = input.value.trim();
   if (!content) return;
   const convId = currentConvId;
-  const model = chatElement('chatModel').value.trim();
+  const model = chatEffectiveModel;
   if (trigger && (!currentConversationOverview?.is_active || !chatConfigured || chatConfigBusy || !model)) {
     chatElement('chatStatus').textContent = '请先激活此会话，并确认模型配置'; return;
   }
@@ -157,15 +138,19 @@ async function sendChat(trigger) {
   preview.className = 'msg assistant';
   const body = document.createElement('div'); body.className = 'msg-body';
   body.textContent = '正在等待回复…'; preview.appendChild(body);
+  window.AshChatUI?.decorateMessage(preview);
+  window.AshChatUI?.startReasoning(preview);
   try {
     if (!trigger) {
       await chatJson(`/api/conversations/${convId}/messages`, {method: 'POST', body: JSON.stringify({role: currentRole, content})});
       input.value = '';
+      window.AshChatUI?.clearDraft(convId);
     } else {
       const pendingUser = document.createElement('div');
       pendingUser.className = 'msg user';
       const pendingBody = document.createElement('div'); pendingBody.className = 'msg-body';
       pendingBody.textContent = content; pendingUser.appendChild(pendingBody);
+      window.AshChatUI?.decorateMessage(pendingUser);
       area.append(pendingUser, preview); area.scrollTop = area.scrollHeight;
       chatElement('chatStatus').textContent = '正在回复…';
       const response = await api(`/api/conversations/${convId}/chat`, {
@@ -177,16 +162,18 @@ async function sendChat(trigger) {
         throw new Error(data.error || `发送失败 (${response.status})`);
       }
       input.value = '';
+      window.AshChatUI?.clearDraft(convId);
       if (response.headers.get('content-type')?.includes('text/event-stream')) {
         await consumeChatStream(response, delta => {
           const atBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 100;
           reply += delta; renderChatText(body, reply);
           if (atBottom) area.scrollTop = area.scrollHeight;
-        });
+        }, delta => window.AshChatUI?.appendReasoning(delta));
       } else {
         const data = await response.json();
         if (data.error) throw new Error(typeof data.error === 'string' ? data.error : '回复失败');
         reply = data.choices?.[0]?.message?.content || '';
+        window.AshChatUI?.appendReasoning(chatReasoningText(data.choices?.[0]?.message));
       }
     }
     chatElement('chatStatus').textContent = trigger ? '回复完成' : '已追加到上下文';
@@ -211,11 +198,9 @@ async function sendChat(trigger) {
 
 document.addEventListener('DOMContentLoaded', () => {
   if (CONTEXT_EMBED_MODE !== 'detail') return;
-  chatElement('chatRoute').onchange = () => changeChatRoute('route');
-  chatElement('chatProvider').onchange = () => changeChatRoute('provider');
-  chatElement('refreshModels').onclick = loadChatConfig;
+  chatElement('phone-chat-model').onclick = ()=>window.parent.postMessage({type:'memory-gateway-open-chat-configuration'},location.origin);
   chatElement('stopChat').onclick = () => chatController?.abort();
-  chatElement('activateChat').onclick = async () => {
+  chatElement('phone-chat-continue').onclick = async () => {
     chatConfigBusy = true; updateChatAvailability();
     try {
       await chatJson(`/api/conversations/${currentConvId}/activate`, {method: 'POST'});
@@ -226,4 +211,8 @@ document.addEventListener('DOMContentLoaded', () => {
     finally { chatConfigBusy = false; updateChatAvailability(); }
   };
   loadChatConfig();
+});
+
+window.addEventListener('message',event=>{
+  if(event.origin===location.origin && event.source===window.parent && event.data?.type==='ash-chat-configuration-changed') loadChatConfig();
 });

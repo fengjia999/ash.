@@ -34,4 +34,14 @@ Thumbs.db
 
 # Local nested worktrees and generated handoff notes
 /puxu/
-/COMMIT_SUMMARY.md
+
+# Bundled Photon build outputs
+integrations/photon/node_modules
+integrations/photon/dist/
+
+integrations/qq/node_modules
+
+# VPS-local Node runtime and discovery manifest
+.runtime/
+
+integrations/social/node_modules

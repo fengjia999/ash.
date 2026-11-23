@@ -12,7 +12,7 @@ class PageLoadingAssetTests(unittest.TestCase):
         css = (
             Path(__file__).resolve().parents[1] / "static" / "css" / "dashboard.css"
         ).read_text(encoding="utf-8")
-        heading_rule = css.split(".section-header h1 {", 1)[1].split("}", 1)[0]
+        heading_rule = css.split(".section-header h1:where(.phone-paper-app, .phone-paper-app *) {", 1)[1].split("}", 1)[0]
 
         self.assertIn("flex: 0 0 auto;", heading_rule)
         self.assertIn("white-space: nowrap;", heading_rule)
@@ -37,15 +37,15 @@ class PageLoadingAssetTests(unittest.TestCase):
             'document.addEventListener("DOMContentLoaded", () => {', 1
         )[1].split("});", 1)[0]
 
-        self.assertIn("loadConversationListFrame();", startup)
-        self.assertIn(' : "conversations"', startup)
+        self.assertNotIn("loadConversationListFrame();", startup)
+        self.assertIn("? 'home' : 'conversations'", startup)
         self.assertNotIn("loadLongTermMemory();", startup)
         self.assertNotIn("loadMemoryToolPrompt();", startup)
         self.assertNotIn("loadPromptSplicePreview();", startup)
         self.assertNotIn("loadExportStats();", startup)
         self.assertNotIn("loadMemories();", startup)
         self.assertIn("/api/conversations?include_stats=true", script)
-        self.assertIn('["fragments", "long-term"].includes(viewName)', script)
+        self.assertIn('["directory", "long-term"].includes(name)', script)
 
     def test_conversation_messages_are_loaded_in_small_pages(self):
         template = (
@@ -54,10 +54,12 @@ class PageLoadingAssetTests(unittest.TestCase):
 
         self.assertIn("const MESSAGE_PAGE_SIZE = 50;", template)
         self.assertIn("加载更早消息", template)
-        self.assertIn("messages?limit=${MESSAGE_PAGE_SIZE}", template)
+        self.assertIn("const INITIAL_MESSAGE_PAGE_SIZE = 20;", template)
+        self.assertIn("loadingOlder ? MESSAGE_PAGE_SIZE : INITIAL_MESSAGE_PAGE_SIZE", template)
+        self.assertIn("messages?limit=${pageSize}", template)
         self.assertNotIn('onclick="editMsg(${m.id}', template)
 
-    def test_dashboard_conversation_hub_keeps_list_and_detail_lazy(self):
+    def test_dashboard_uses_native_list_and_keeps_detail_lazy(self):
         root = Path(__file__).resolve().parents[1]
         dashboard = (root / "templates" / "dashboard.html").read_text(
             encoding="utf-8"
@@ -66,23 +68,18 @@ class PageLoadingAssetTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn('data-section="conversations"', dashboard)
-        self.assertIn('id="conversation-list-frame"', dashboard)
+        phone_shell = (root / 'templates/phone-shell.html').read_text()
+        self.assertIn('id="phone-conversation-list"', phone_shell)
+        self.assertNotIn('id="conversation-list-frame"', dashboard)
         self.assertIn('id="conversation-detail-frame"', dashboard)
         conversation_section = dashboard.split(
             'id="section-conversations"', 1
         )[1].split('</section>', 1)[0]
-        sidebar = dashboard.split('<aside class="sidebar">', 1)[1].split(
-            '</aside>', 1
-        )[0]
-        self.assertIn('id="conversation-list-frame"', conversation_section)
-        self.assertNotIn('id="conversation-list-frame"', sidebar)
+        self.assertIn('id="conversation-detail-frame"', conversation_section)
         self.assertNotIn('id="conversation-empty"', dashboard)
         self.assertNotIn('id="conversation-list-frame" src=', dashboard)
         self.assertNotIn('id="conversation-detail-frame" src=', dashboard)
-        self.assertIn('frame.src = "/context?embedded=list";', script)
         self.assertIn('embedded: "detail"', script)
-        self.assertIn('frame.removeAttribute("src");', script)
         self.assertNotIn("loadActiveConversation", script)
 
     def test_dashboard_prompt_editor_is_a_lazy_embedded_branch(self):
@@ -94,48 +91,33 @@ class PageLoadingAssetTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn('data-section="prompts"', dashboard)
-        self.assertIn('id="section-prompts"', dashboard)
+        self.assertIn('data-phone-app="presets"', (root / 'templates/phone-shell.html').read_text())
+        self.assertIn('id="section-presets"', dashboard)
         self.assertIn('id="prompt-console-frame"', dashboard)
         self.assertNotIn('id="prompt-console-frame" class="prompt-console-frame" title="提示词编辑器" src=', dashboard)
         self.assertIn('frame.src = "/prompt?embedded=dashboard";', script)
 
-    def test_dashboard_distinguishes_current_and_original_repositories(self):
+    def test_readme_distinguishes_current_and_original_repositories(self):
         root = Path(__file__).resolve().parents[1]
-        dashboard = (root / "templates" / "dashboard.html").read_text(
-            encoding="utf-8"
-        )
         readme = (root / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("public_repository_url", dashboard)
-        self.assertIn("当前项目 · Ash", dashboard)
-        self.assertIn(
-            "https://github.com/garan0613/ai-memory-gateway", dashboard
-        )
-        self.assertIn("感谢原作者提供网关的原始框架", readme)
-        self.assertIn("面向昂贵模型", readme)
-        self.assertIn("MCP", readme)
         self.assertIn("https://github.com/fengjia999/Ash-public", readme)
-        self.assertIn("https://github.com/fengjia999/Photon", readme)
-        self.assertIn("Advanced integration", readme)
-        self.assertIn("启动时必须连接 PostgreSQL", readme)
+        self.assertIn(
+            "https://github.com/garan0613/ai-memory-gateway", readme
+        )
+        self.assertIn("感谢原作者提供早期框架与开放许可", readme)
+        self.assertIn("MCP", readme)
 
-    def test_mobile_sidebar_uses_a_click_blocking_backdrop(self):
+    def test_phone_desktop_replaces_sidebar_navigation(self):
         root = Path(__file__).resolve().parents[1]
-        dashboard = (root / "templates" / "dashboard.html").read_text(
-            encoding="utf-8"
-        )
-        css = (root / "static" / "css" / "dashboard.css").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn('class="mobile-sidebar-backdrop"', dashboard)
-        self.assertIn('onclick="toggleHistorySidebar()"', dashboard)
-        open_rule = css.split(
-            "body.history-open .mobile-sidebar-backdrop {", 1
-        )[1].split("}", 1)[0]
-        self.assertIn("pointer-events:auto", open_rule.replace(" ", ""))
-        self.assertNotIn("100vmax", css)
+        dashboard = (root / "templates/dashboard.html").read_text()
+        phone_shell = (root / "templates/phone-shell.html").read_text()
+        self.assertNotIn('class="sidebar page-index"', dashboard)
+        self.assertNotIn('class="mobile-sidebar-backdrop"', dashboard)
+        self.assertNotIn('dashboard-gestures.js', dashboard)
+        self.assertIn('id="phone-pages"', phone_shell)
+        self.assertIn('id="phone-page-dots"', phone_shell)
+        self.assertIn('merle-phone.js', dashboard)
 
     def test_embedded_conversation_ui_preserves_existing_controls_and_sort(self):
         template = (
@@ -144,7 +126,7 @@ class PageLoadingAssetTests(unittest.TestCase):
 
         for text in (
             "摘要", "选择", "+ 新建", "仅追加",
-            "发送并触发回复", "🟠", "🔵",
+            "发送并触发回复", "🍅 M", "🫐 N",
         ):
             self.assertIn(text, template)
         self.assertIn(
@@ -200,23 +182,13 @@ class PageLoadingAssetTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        app_markup = template.split('{% if embedded == \'detail\' %}', 1)[1].split(
-            "{% endif %}", 1
-        )[0]
-        list_markup = template.split('{% if embedded == \'list\' %}', 1)[1].split(
-            "{% endif %}", 1
-        )[0]
-        self.assertIn('class="app"', app_markup)
-        self.assertNotIn('id="sidebar"', app_markup)
-        self.assertIn('id="sidebar"', list_markup)
-        self.assertNotIn('class="app"', list_markup)
         self.assertIn("return messageLoading;", template)
         self.assertIn("postContextStatus('error'", template)
         self.assertIn("function handleConversationTap(", template)
         self.assertIn("CONVERSATION_DOUBLE_TAP_MS", template)
-        self.assertIn(".conv-item.settings-visible .conv-gear", template)
+        self.assertIn(".conv-item.settings-visible .conv-gear", (root / "static/css/context-legacy.css").read_text())
         self.assertIn("memory-gateway-context-status", script)
-        self.assertIn('id="conversation-list-retry"', dashboard)
+        self.assertIn('id="conversation-detail-retry"', dashboard)
 
         context_template = main.templates.env.get_template("context.html")
         common = {
@@ -266,7 +238,7 @@ class ConversationDashboardRouteTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ConversationLoadingDatabaseTests(unittest.IsolatedAsyncioTestCase):
-    async def test_lightweight_conversation_list_counts_only_active_messages(self):
+    async def test_lightweight_conversation_list_does_not_scan_messages(self):
         conn = MagicMock()
         conn.fetch = AsyncMock(return_value=[])
         acquire = MagicMock()
@@ -280,8 +252,9 @@ class ConversationLoadingDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([], result)
         query = conn.fetch.await_args.args[0]
-        self.assertIn("CASE WHEN c.is_active", query)
-        self.assertIn("m.conversation_id = c.id", query)
+        self.assertIn("NULL::BIGINT AS message_count", query)
+        self.assertNotIn("COUNT(", query)
+        self.assertNotIn("context_messages", query)
         self.assertNotIn("GROUP BY", query)
         self.assertNotIn("handoff_summary", query)
 

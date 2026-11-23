@@ -1,3 +1,4 @@
+from transient_images import without_images
 import asyncio
 import os
 import uuid
@@ -5,8 +6,13 @@ import re
 import json
 import math
 import hashlib
+import time
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
+from html import escape as html_escape
 from typing import Optional, List
+
+from diary_author import validate_author_role
 
 import asyncpg
 import httpx
@@ -19,6 +25,7 @@ jieba.setLogLevel(logging.INFO)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 # Shared across workers and all explicit conversation-switch paths.
 CONVERSATION_SWITCH_LOCK = 0x415348434F4E56
+NOCTURNE_EXTRACTION_LOCK = 0x4153484E4F4354
 TIMEZONE_HOURS = int(os.getenv("TIMEZONE_HOURS", "8"))
 FLOW_MEMORY_DEFAULT_MAX_ITEMS = max(
     1, min(100, int(os.getenv("FLOW_MEMORY_MAX_ITEMS", "8")))
@@ -28,6 +35,8 @@ FLOW_MEMORY_DEFAULT_MAX_ITEMS = max(
 FLOW_MEMORY_HARD_TOKENS = max(
     1, int(os.getenv("FLOW_MEMORY_HARD_TOKENS", "12000"))
 )
+CONTEXT_WINDOW_MIN_TOKENS = 1000
+CONTEXT_SUMMARY_TRIGGER_DEFAULT_TOKENS = 8000
 
 # 搜索权重
 WEIGHT_SEMANTIC = float(os.getenv("WEIGHT_SEMANTIC", "0.65"))
@@ -39,47 +48,6 @@ LONG_TERM_RECALL_MIN_SEMANTIC_SCORE = max(
     0.0,
     min(1.0, float(os.getenv("LONG_TERM_RECALL_MIN_SEMANTIC_SCORE", "0.35"))),
 )
-FRAGMENT_RECENCY_HALF_LIFE_DAYS = max(
-    1.0, float(os.getenv('FRAGMENT_RECENCY_HALF_LIFE_DAYS', '30'))
-)
-
-
-def fragment_recall_scores(memory, query, semantic, related_ids=(), now=None):
-    """All components are in [0, 1]; eligibility is checked before ranking."""
-    metadata = _json_object(memory.get('metadata'))
-    importance = metadata.get('importance', 0.5)
-    try:
-        importance = float(importance)
-        if not math.isfinite(importance):
-            importance = 0.5
-    except (TypeError, ValueError):
-        importance = 0.5
-    recency = 0.0
-    # Migration timestamps are not evidence of freshness.
-    created = memory.get('created_at') if metadata.get('extraction_job_id') else None
-    if isinstance(created, str):
-        try:
-            created = datetime.fromisoformat(created.replace('Z', '+00:00'))
-        except ValueError:
-            created = None
-    if isinstance(created, datetime):
-        created = created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created
-        age = max(0, ((now or datetime.now(timezone.utc)) - created).total_seconds() / 86400)
-        recency = 2 ** (-age / FRAGMENT_RECENCY_HALF_LIFE_DAYS)
-    entities = metadata.get('entities') or []
-    entities = {entity.strip().casefold() for entity in entities
-                if isinstance(entity, str) and entity.strip()} if isinstance(entities, list) else set()
-    query = query.casefold()
-    overlap = sum(entity in query for entity in entities) / len(entities) if entities else 0.0
-    source_id = str(metadata.get('source_conversation_id') or '')
-    affinity = float(bool(source_id) and source_id in {str(value) for value in related_ids})
-    parts = dict(semantic_similarity=max(0.0, min(1.0, semantic)), recency_score=recency,
-                 importance=max(0.0, min(1.0, importance)), entity_overlap=overlap,
-                 thread_affinity=affinity)
-    parts['total'] = (parts['semantic_similarity'] * 0.45 + recency * 0.20
-                      + parts['importance'] * 0.15 + overlap * 0.10 + affinity * 0.10)
-    return parts
-
 # OpenAI-compatible Embeddings
 EMBEDDING_ENABLED = os.getenv("EMBEDDING_ENABLED", "false").lower() == "true"
 EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "").rstrip("/")
@@ -100,7 +68,7 @@ EMBEDDING_AUTOFILL_LIMIT = int(os.getenv("EMBEDDING_AUTOFILL_LIMIT", "10"))
 MEMORY_TYPES = {
     "factual",    # 长期事实：偏好、习惯、人物关系
     "episodic",   # 情景记忆：某天发生的具体事件
-    "diary",      # 助手生成的日记/内心独白
+    "diary",      # 助手的日记/内心独白
     "quote",      # 对话原话存档
     "temp",       # 临时记忆：备忘、短期上下文
 }
@@ -203,7 +171,7 @@ async def migrate_memory_layers():
             CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type)
         """)
         await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_memories_expires
+            CREATE INDEX IF NOT EXISTS idx_memories_expires 
             ON memories(expires_at) WHERE expires_at IS NOT NULL
         """)
         await conn.execute("""
@@ -216,6 +184,29 @@ async def migrate_memory_layers():
 async def init_tables():
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS diary_monthly_summaries (
+                month TEXT PRIMARY KEY,
+                content TEXT NOT NULL DEFAULT '',
+                request_id UUID NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                error TEXT NOT NULL DEFAULT '',
+                source_ids JSONB NOT NULL DEFAULT '[]',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '20 minutes'
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS cover_notes (
+                id SERIAL PRIMARY KEY,
+                title VARCHAR(80) NOT NULL DEFAULT '',
+                content TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 12000),
+                author VARCHAR(12) NOT NULL CHECK (author IN ('user', 'assistant')),
+                revision INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
         # 记忆表
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS memories (
@@ -229,8 +220,8 @@ async def init_tables():
             );
         """)
         await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_memories_fts
-            ON memories
+            CREATE INDEX IF NOT EXISTS idx_memories_fts 
+            ON memories 
             USING gin(to_tsvector('simple', content));
         """)
         # memory_embeddings 表
@@ -254,7 +245,7 @@ async def init_tables():
         # Remove them after the canonical conversation tables are available.
         await conn.execute("DROP TABLE IF EXISTS session_archive_messages")
         await conn.execute("DROP TABLE IF EXISTS session_archives")
-
+        
         await init_standing_memory_tables()
         await init_long_term_memory_tables()
         await init_flow_memory_settings_table()
@@ -275,14 +266,14 @@ async def init_tables():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_snapshots_created
             ON memory_snapshots (created_at DESC);
-        """)
+        """)        
 
         # Rolling conversation summaries are retired. Existing legacy tables are
         # deliberately left untouched so upgrading does not destroy old data.
 
     # 执行分层字段迁移
     await migrate_memory_layers()
-
+    
     print("✅ 数据库表结构已就绪")
 
 
@@ -359,6 +350,21 @@ async def init_standing_memory_tables():
         """)
 
 
+async def _ensure_legacy_raw_memory_ledger(conn):
+    """Retain the old backup ledger without reviving original-quote extraction."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS raw_memory_ledger (
+            source_key TEXT PRIMARY KEY,
+            memory_id INTEGER REFERENCES long_term_memories(id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_raw_memory_ledger_memory
+        ON raw_memory_ledger(memory_id)
+    """)
+
+
 async def init_long_term_memory_tables():
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -372,6 +378,7 @@ async def init_long_term_memory_tables():
                 memory_date DATE DEFAULT CURRENT_DATE
             );
         """)
+        await _ensure_legacy_raw_memory_ledger(conn)
         await conn.execute("""
             ALTER TABLE long_term_memories
             ADD COLUMN IF NOT EXISTS memory_date DATE;
@@ -421,37 +428,6 @@ async def init_long_term_memory_tables():
             WHERE metadata ? 'source_flow_memory_id'
                OR metadata->>'promoted_from' = 'standing_flow'
                OR metadata->>'source' = 'promoted_from_flow';
-        """)
-        await conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_fragment_source_diary_summary
-            ON long_term_memories ((metadata->>'source_diary_summary_id'))
-            WHERE metadata ? 'source_diary_summary_id';
-        """)
-        # A diary summary becomes a separate, text-only fragment. The source
-        # diary remains intact; only its obsolete summary field is cleared.
-        # source_diary_summary_id makes this split idempotent across restarts.
-        await conn.execute("""
-            INSERT INTO long_term_memories
-                (title, keywords, summary, content, memory_date,
-                 priority, enabled, metadata)
-            SELECT
-                '', '[]'::jsonb, '', btrim(diary.summary), NULL,
-                diary.priority, diary.enabled,
-                jsonb_build_object(
-                    'entry_kind', 'fragment',
-                    'source_diary_summary_id', diary.id,
-                    'migrated_from', 'diary_summary'
-                )
-            FROM long_term_memories AS diary
-            WHERE COALESCE(diary.metadata->>'entry_kind', 'diary') = 'diary'
-              AND btrim(diary.summary) <> ''
-            ON CONFLICT DO NOTHING;
-        """)
-        await conn.execute("""
-            UPDATE long_term_memories
-            SET summary = ''
-            WHERE COALESCE(metadata->>'entry_kind', 'diary') = 'diary'
-              AND btrim(summary) <> '';
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS long_term_memory_proposals (
@@ -600,7 +576,7 @@ async def save_token_usage(
         return row["id"]
 
 
-async def get_token_usage_summary(days: int = 7) -> dict:
+async def get_token_usage_summary(days: int = 7, timezone_hours: int = 0) -> dict:
     days = max(1, int(days or 7))
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -630,7 +606,7 @@ async def get_token_usage_summary(days: int = 7) -> dict:
             FROM token_usage_logs
             WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day')
             GROUP BY model, provider
-            ORDER BY total_tokens DESC
+            ORDER BY request_count DESC, total_tokens DESC
             LIMIT 20
             """,
             days,
@@ -638,7 +614,7 @@ async def get_token_usage_summary(days: int = 7) -> dict:
         daily_rows = await conn.fetch(
             """
             SELECT
-                created_at::date AS day,
+                ((created_at AT TIME ZONE 'UTC') + ($2::int * INTERVAL '1 hour'))::date AS day,
                 COUNT(*)::bigint AS request_count,
                 COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
                 COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
@@ -651,6 +627,7 @@ async def get_token_usage_summary(days: int = 7) -> dict:
             ORDER BY day ASC
             """,
             days,
+            timezone_hours,
         )
         provider_rows = await conn.fetch(
             """
@@ -746,8 +723,6 @@ async def init_heartbeat_settings_table():
                 id              SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
                 enabled         BOOLEAN NOT NULL DEFAULT FALSE,
                 interval_minutes INTEGER NOT NULL DEFAULT 30,
-                provider        TEXT NOT NULL DEFAULT 'openai',
-                model           TEXT NOT NULL DEFAULT '',
                 updated_at      TIMESTAMPTZ DEFAULT NOW()
             );
         """)
@@ -758,10 +733,46 @@ async def init_route_settings_table():
     async with pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS route_settings (
-                id          SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-                provider    TEXT NOT NULL DEFAULT 'auto',
-                updated_at  TIMESTAMPTZ DEFAULT NOW()
+                id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                provider TEXT NOT NULL DEFAULT 'auto',
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             );
+            ALTER TABLE route_settings
+                ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS api_url TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS api_key TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS thinking_effort TEXT;
+            CREATE TABLE IF NOT EXISTS api_configuration_presets (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                provider TEXT NOT NULL CHECK (provider IN ('auto', 'openai', 'anthropic')),
+                api_url TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                model TEXT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            ALTER TABLE api_configuration_presets ADD COLUMN IF NOT EXISTS thinking_effort TEXT;
+        """)
+
+
+async def init_identity_presets_table():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS identity_presets (
+                id              SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                user_name       TEXT NOT NULL DEFAULT '',
+                assistant_name  TEXT NOT NULL DEFAULT '',
+                user_avatar     TEXT NOT NULL DEFAULT '',
+                assistant_avatar TEXT NOT NULL DEFAULT '',
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        await conn.execute("""
+            ALTER TABLE identity_presets
+                ADD COLUMN IF NOT EXISTS user_avatar TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS assistant_avatar TEXT NOT NULL DEFAULT '';
         """)
 
 
@@ -859,6 +870,34 @@ async def delete_anthropic_api_key() -> bool:
     return result != "DELETE 0"
 
 
+async def init_mcp_settings_table():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS mcp_settings (
+                id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                servers JSONB NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+
+async def get_mcp_settings() -> list | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        value = await conn.fetchval("SELECT servers FROM mcp_settings WHERE id = 1")
+    return json.loads(value) if isinstance(value, str) else value
+
+
+async def save_mcp_settings(servers: list):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO mcp_settings (id, servers) VALUES (1, $1::jsonb)
+            ON CONFLICT (id) DO UPDATE SET servers = EXCLUDED.servers, updated_at = NOW()
+        """, json.dumps(servers, ensure_ascii=False))
+
+
 async def init_ocr_settings_table():
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -881,11 +920,14 @@ async def init_conversation_model_settings_table():
             CREATE TABLE IF NOT EXISTS conversation_model_settings (
                 id                  SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
                 search_enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+                cross_conversation_recall_enabled BOOLEAN NOT NULL DEFAULT FALSE,
                 embedding_api_url   TEXT NOT NULL DEFAULT '',
                 embedding_model     TEXT NOT NULL DEFAULT '',
                 embedding_api_key   TEXT NOT NULL DEFAULT '',
                 long_term_recall_limit BIGINT NOT NULL DEFAULT 5,
                 long_term_recall_token_budget BIGINT,
+                long_term_recall_char_budget BIGINT NOT NULL DEFAULT 2000,
+                long_term_recall_entry_char_limit BIGINT NOT NULL DEFAULT 200,
                 title_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
                 title_provider_id   INTEGER REFERENCES openai_provider_profiles(id) ON DELETE SET NULL,
                 title_api_url       TEXT NOT NULL DEFAULT '',
@@ -893,11 +935,18 @@ async def init_conversation_model_settings_table():
                 title_api_key       TEXT NOT NULL DEFAULT '',
                 handoff_provider_id INTEGER REFERENCES openai_provider_profiles(id) ON DELETE SET NULL,
                 handoff_model       TEXT NOT NULL DEFAULT '',
-                long_term_summary_provider_id INTEGER REFERENCES openai_provider_profiles(id) ON DELETE SET NULL,
-                long_term_summary_model TEXT NOT NULL DEFAULT '',
-                long_term_summary_configured BOOLEAN NOT NULL DEFAULT FALSE,
+                temporary_summary_provider_id INTEGER REFERENCES openai_provider_profiles(id) ON DELETE SET NULL,
+                temporary_summary_model TEXT NOT NULL DEFAULT '',
                 updated_at          TIMESTAMPTZ DEFAULT NOW()
             );
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_model_settings
+            ADD COLUMN IF NOT EXISTS cross_conversation_recall_enabled BOOLEAN NOT NULL DEFAULT FALSE
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_model_settings
+            ADD COLUMN IF NOT EXISTS history_recall_settings JSONB NOT NULL DEFAULT '{}'::jsonb
         """)
         await conn.execute("""
             ALTER TABLE conversation_model_settings
@@ -914,6 +963,35 @@ async def init_conversation_model_settings_table():
         """)
         await conn.execute("""
             ALTER TABLE conversation_model_settings
+            ADD COLUMN IF NOT EXISTS long_term_recall_char_budget BIGINT
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_model_settings
+            ADD COLUMN IF NOT EXISTS long_term_recall_entry_char_limit BIGINT
+        """)
+        await conn.execute("""
+            UPDATE conversation_model_settings
+            SET long_term_recall_char_budget = COALESCE(
+                    long_term_recall_char_budget,
+                    long_term_recall_token_budget,
+                    2000
+                ),
+                long_term_recall_entry_char_limit = COALESCE(
+                    long_term_recall_entry_char_limit,
+                    200
+                )
+            WHERE long_term_recall_char_budget IS NULL
+               OR long_term_recall_entry_char_limit IS NULL
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_model_settings
+            ALTER COLUMN long_term_recall_char_budget SET DEFAULT 2000,
+            ALTER COLUMN long_term_recall_char_budget SET NOT NULL,
+            ALTER COLUMN long_term_recall_entry_char_limit SET DEFAULT 200,
+            ALTER COLUMN long_term_recall_entry_char_limit SET NOT NULL
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_model_settings
             ADD COLUMN IF NOT EXISTS handoff_provider_id INTEGER
             REFERENCES openai_provider_profiles(id) ON DELETE SET NULL
         """)
@@ -923,16 +1001,42 @@ async def init_conversation_model_settings_table():
         """)
         await conn.execute("""
             ALTER TABLE conversation_model_settings
-            ADD COLUMN IF NOT EXISTS long_term_summary_provider_id INTEGER
+            ADD COLUMN IF NOT EXISTS temporary_summary_provider_id INTEGER
             REFERENCES openai_provider_profiles(id) ON DELETE SET NULL
         """)
         await conn.execute("""
             ALTER TABLE conversation_model_settings
-            ADD COLUMN IF NOT EXISTS long_term_summary_model TEXT NOT NULL DEFAULT ''
+            ADD COLUMN IF NOT EXISTS temporary_summary_model TEXT NOT NULL DEFAULT ''
         """)
         await conn.execute("""
-            ALTER TABLE conversation_model_settings
-            ADD COLUMN IF NOT EXISTS long_term_summary_configured BOOLEAN NOT NULL DEFAULT FALSE
+            CREATE TABLE IF NOT EXISTS model_task_settings (
+                task_key       TEXT PRIMARY KEY,
+                provider_id    INTEGER REFERENCES openai_provider_profiles(id)
+                               ON DELETE SET NULL,
+                model          TEXT NOT NULL DEFAULT '',
+                updated_at     TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            ALTER TABLE model_task_settings
+                ADD COLUMN IF NOT EXISTS provider_id INTEGER
+                    REFERENCES openai_provider_profiles(id) ON DELETE SET NULL,
+                ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+        """)
+        # Split generation settings into independent task rows. ON CONFLICT
+        # preserves every choice made after migration.
+        await conn.execute("""
+            INSERT INTO model_task_settings (task_key, provider_id, model)
+            SELECT 'diary_keywords', title_provider_id, title_model
+            FROM conversation_model_settings WHERE id = 1
+            ON CONFLICT (task_key) DO NOTHING
+        """)
+        await conn.execute("""
+            INSERT INTO model_task_settings (task_key, provider_id, model)
+            SELECT 'diary_merge', handoff_provider_id, handoff_model
+            FROM conversation_model_settings WHERE id = 1
+            ON CONFLICT (task_key) DO NOTHING
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS conversation_search_chunks (
@@ -1113,6 +1217,169 @@ async def delete_openai_provider_profile(profile_id: int) -> bool:
     return result != "DELETE 0"
 
 
+async def init_anthropic_provider_profiles_table():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS anthropic_provider_profiles (
+                id          SERIAL PRIMARY KEY,
+                name        TEXT NOT NULL,
+                api_url     TEXT NOT NULL,
+                api_key     TEXT NOT NULL,
+                is_active   BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+        await conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_anthropic_provider_profiles_active
+            ON anthropic_provider_profiles (is_active)
+            WHERE is_active = TRUE;
+        """)
+
+
+async def get_anthropic_provider_profiles() -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, name, api_url, api_key, is_active, created_at, updated_at
+            FROM anthropic_provider_profiles
+            ORDER BY is_active DESC, updated_at DESC, id DESC
+        """)
+    return [dict(row) for row in rows]
+
+
+async def get_active_anthropic_provider_profile() -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT id, name, api_url, api_key, is_active, created_at, updated_at
+            FROM anthropic_provider_profiles
+            WHERE is_active = TRUE
+            LIMIT 1
+        """)
+    return dict(row) if row else None
+
+
+async def get_anthropic_provider_profile(profile_id: int) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT id, name, api_url, api_key, is_active, created_at, updated_at
+            FROM anthropic_provider_profiles
+            WHERE id = $1
+        """, int(profile_id))
+    return dict(row) if row else None
+
+
+async def save_anthropic_provider_profile(
+    name: str,
+    api_url: str,
+    api_key: str,
+    is_active: bool = False,
+) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("LOCK TABLE anthropic_provider_profiles IN EXCLUSIVE MODE")
+            if is_active:
+                await conn.execute("""
+                    UPDATE anthropic_provider_profiles
+                    SET is_active = FALSE, updated_at = NOW()
+                    WHERE is_active = TRUE
+                """)
+            row = await conn.fetchrow(
+                """
+                INSERT INTO anthropic_provider_profiles
+                    (name, api_url, api_key, is_active, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, NOW(), NOW())
+                RETURNING *
+                """,
+                name,
+                api_url,
+                api_key,
+                bool(is_active),
+            )
+    return dict(row)
+
+
+async def update_anthropic_provider_profile(
+    profile_id: int,
+    name: str,
+    api_url: str,
+    api_key: str | None = None,
+    is_active: bool = False,
+) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("LOCK TABLE anthropic_provider_profiles IN EXCLUSIVE MODE")
+            if not await conn.fetchval("SELECT id FROM anthropic_provider_profiles WHERE id = $1", int(profile_id)):
+                return None
+            if is_active:
+                await conn.execute("""
+                    UPDATE anthropic_provider_profiles
+                    SET is_active = FALSE, updated_at = NOW()
+                    WHERE is_active = TRUE AND id <> $1
+                """, int(profile_id))
+            row = await conn.fetchrow(
+                """
+                UPDATE anthropic_provider_profiles
+                SET name = $2,
+                    api_url = $3,
+                    api_key = COALESCE($4, api_key),
+                    is_active = $5,
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING *
+                """,
+                int(profile_id),
+                name,
+                api_url,
+                api_key,
+                bool(is_active),
+            )
+    return dict(row) if row else None
+
+
+async def activate_anthropic_provider_profile(profile_id: int) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("LOCK TABLE anthropic_provider_profiles IN EXCLUSIVE MODE")
+            target = await conn.fetchrow(
+                "SELECT id FROM anthropic_provider_profiles WHERE id = $1 FOR UPDATE",
+                int(profile_id),
+            )
+            if not target:
+                return None
+            await conn.execute("""
+                UPDATE anthropic_provider_profiles
+                SET is_active = FALSE, updated_at = NOW()
+                WHERE is_active = TRUE
+            """)
+            row = await conn.fetchrow(
+                """
+                UPDATE anthropic_provider_profiles
+                SET is_active = TRUE, updated_at = NOW()
+                WHERE id = $1
+                RETURNING *
+                """,
+                int(profile_id),
+            )
+    return dict(row) if row else None
+
+
+async def delete_anthropic_provider_profile(profile_id: int) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM anthropic_provider_profiles WHERE id = $1",
+            int(profile_id),
+        )
+    return result != "DELETE 0"
+
+
 async def get_route_settings(default_provider: str = "auto") -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -1121,23 +1388,117 @@ async def get_route_settings(default_provider: str = "auto") -> dict:
         return dict(row)
     return {
         "provider": default_provider or "auto",
+        "model": "", "api_url": "", "api_key": "",
         "updated_at": None,
     }
 
 
-async def save_route_settings(provider: str) -> dict:
+async def save_route_settings(provider: str, *, model: str | None = None,
+                              api_url: str | None = None, api_key: str | None = None, thinking_effort: str | None = None) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO route_settings (id, provider, model, api_url, api_key, thinking_effort, updated_at)
+            VALUES (1, $1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, ''), $5, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                provider = EXCLUDED.provider,
+                model = COALESCE($2, route_settings.model),
+                api_url = COALESCE($3, route_settings.api_url),
+                api_key = COALESCE($4, route_settings.api_key),
+                thinking_effort = COALESCE($5, route_settings.thinking_effort),
+                updated_at = NOW()
+            RETURNING *
+        """, provider or "auto", model, api_url, api_key, thinking_effort)
+    return dict(row)
+
+
+async def get_api_configuration_presets() -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM api_configuration_presets ORDER BY updated_at DESC, id DESC")
+    return [dict(row) for row in rows]
+
+
+async def get_api_configuration_preset(preset_id: int) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM api_configuration_presets WHERE id = $1", preset_id)
+    return dict(row) if row else None
+
+
+async def save_api_configuration_preset(name: str, provider: str, api_url: str, api_key: str, model: str, thinking_effort: str | None = None) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO api_configuration_presets (name, provider, api_url, api_key, model, thinking_effort)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (name) DO UPDATE SET
+                provider = EXCLUDED.provider, api_url = EXCLUDED.api_url,
+                api_key = EXCLUDED.api_key, model = EXCLUDED.model, thinking_effort = EXCLUDED.thinking_effort, updated_at = NOW()
+            RETURNING *
+        """, name, provider, api_url, api_key, model, thinking_effort)
+    return dict(row)
+
+
+async def delete_api_configuration_preset(preset_id: int) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM api_configuration_presets WHERE id = $1", preset_id)
+    return result != "DELETE 0"
+
+
+async def get_identity_presets() -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT user_name, assistant_name, user_avatar, assistant_avatar, updated_at "
+            "FROM identity_presets WHERE id = 1"
+        )
+    if row:
+        return dict(row)
+    return {
+        "user_name": "",
+        "assistant_name": "",
+        "user_avatar": "",
+        "assistant_avatar": "",
+        "updated_at": None,
+    }
+
+
+async def save_identity_presets(user_name: str, assistant_name: str) -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO route_settings (id, provider, updated_at)
+            INSERT INTO identity_presets
+                (id, user_name, assistant_name, updated_at)
+            VALUES (1, $1, $2, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                user_name = EXCLUDED.user_name,
+                assistant_name = EXCLUDED.assistant_name,
+                updated_at = NOW()
+            RETURNING user_name, assistant_name, user_avatar, assistant_avatar, updated_at
+            """,
+            str(user_name or ""),
+            str(assistant_name or ""),
+        )
+    return dict(row)
+
+
+async def save_identity_avatar(role: str, image: str) -> dict:
+    if role not in {"user", "assistant"}:
+        raise ValueError("invalid avatar role")
+    column = role + "_avatar"
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            INSERT INTO identity_presets (id, {column}, updated_at)
             VALUES (1, $1, NOW())
             ON CONFLICT (id) DO UPDATE SET
-                provider = EXCLUDED.provider,
-                updated_at = NOW()
-            RETURNING *
-            """,
-            provider or "auto",
+                {column} = EXCLUDED.{column}, updated_at = NOW()
+            RETURNING user_name, assistant_name, user_avatar, assistant_avatar, updated_at
+            """, image,
         )
     return dict(row)
 
@@ -1167,11 +1528,13 @@ async def get_conversation_model_settings() -> dict:
         return dict(row)
     return {
         "search_enabled": False,
+        "cross_conversation_recall_enabled": False,
         "embedding_api_url": "",
         "embedding_model": "",
         "embedding_api_key": "",
         "long_term_recall_limit": 5,
-        "long_term_recall_token_budget": None,
+        "long_term_recall_char_budget": 2000,
+        "long_term_recall_entry_char_limit": 200,
         "title_enabled": False,
         "title_provider_id": None,
         "title_api_url": "",
@@ -1179,11 +1542,60 @@ async def get_conversation_model_settings() -> dict:
         "title_api_key": "",
         "handoff_provider_id": None,
         "handoff_model": "",
-        "long_term_summary_provider_id": None,
-        "long_term_summary_model": "",
-        "long_term_summary_configured": False,
+        "temporary_summary_provider_id": None,
+        "temporary_summary_model": "",
         "updated_at": None,
     }
+
+
+async def get_model_task_settings() -> dict[str, dict]:
+    async def fetch_rows():
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT task_key, provider_id, model, updated_at FROM model_task_settings"
+            )
+
+    try:
+        rows = await fetch_rows()
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
+        # A rolling/hot deployment can briefly run new API code before the
+        # startup migration has reached this newly split settings table.
+        await init_conversation_model_settings_table()
+        rows = await fetch_rows()
+    return {str(row["task_key"]): dict(row) for row in rows}
+
+
+async def save_model_task_settings(settings: dict[str, dict]) -> dict[str, dict]:
+    async def save_once():
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for task_key, value in settings.items():
+                    await conn.execute(
+                        """
+                        INSERT INTO model_task_settings
+                            (task_key, provider_id, model, updated_at)
+                        VALUES ($1, $2, $3, NOW())
+                        ON CONFLICT (task_key) DO UPDATE SET
+                            provider_id = EXCLUDED.provider_id,
+                            model = EXCLUDED.model,
+                            updated_at = NOW()
+                        """,
+                        str(task_key),
+                        (
+                            int(value["provider_id"])
+                            if value.get("provider_id") is not None else None
+                        ),
+                        str(value.get("model") or ""),
+                    )
+
+    try:
+        await save_once()
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
+        await init_conversation_model_settings_table()
+        await save_once()
+    return await get_model_task_settings()
 
 
 async def save_conversation_model_settings(
@@ -1192,15 +1604,17 @@ async def save_conversation_model_settings(
     embedding_model: str,
     embedding_api_key: str | None,
     long_term_recall_limit: int,
-    long_term_recall_token_budget: int,
+    long_term_recall_char_budget: int,
+    long_term_recall_entry_char_limit: int,
     title_enabled: bool,
     title_provider_id: int | None,
     title_model: str,
     handoff_provider_id: int | None,
     handoff_model: str,
-    long_term_summary_provider_id: int | None = None,
-    long_term_summary_model: str = "",
-    long_term_summary_configured: bool = False,
+    temporary_summary_provider_id: int | None = None,
+    temporary_summary_model: str = "",
+    history_recall_settings: dict | None = None,
+    cross_conversation_recall_enabled: bool | None = None,
 ) -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -1209,30 +1623,31 @@ async def save_conversation_model_settings(
             INSERT INTO conversation_model_settings
                 (id, search_enabled, embedding_api_url, embedding_model,
                  embedding_api_key, long_term_recall_limit,
-                 long_term_recall_token_budget,
+                 long_term_recall_char_budget,
+                 long_term_recall_entry_char_limit,
                  title_enabled, title_provider_id, title_model,
                  handoff_provider_id, handoff_model,
-                 long_term_summary_provider_id, long_term_summary_model,
-                 long_term_summary_configured,
-                 updated_at)
+                 temporary_summary_provider_id, temporary_summary_model,
+                 cross_conversation_recall_enabled, updated_at)
             VALUES
                 (1, $1, $2, $3, COALESCE($4, ''), $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, NOW())
+                 $11, $12, $13, $14, COALESCE($15, FALSE), NOW())
             ON CONFLICT (id) DO UPDATE SET
                 search_enabled = EXCLUDED.search_enabled,
+                cross_conversation_recall_enabled = COALESCE($15, conversation_model_settings.cross_conversation_recall_enabled),
                 embedding_api_url = EXCLUDED.embedding_api_url,
                 embedding_model = EXCLUDED.embedding_model,
                 embedding_api_key = COALESCE($4, conversation_model_settings.embedding_api_key),
                 long_term_recall_limit = EXCLUDED.long_term_recall_limit,
-                long_term_recall_token_budget = EXCLUDED.long_term_recall_token_budget,
+                long_term_recall_char_budget = EXCLUDED.long_term_recall_char_budget,
+                long_term_recall_entry_char_limit = EXCLUDED.long_term_recall_entry_char_limit,
                 title_enabled = EXCLUDED.title_enabled,
                 title_provider_id = EXCLUDED.title_provider_id,
                 title_model = EXCLUDED.title_model,
                 handoff_provider_id = EXCLUDED.handoff_provider_id,
                 handoff_model = EXCLUDED.handoff_model,
-                long_term_summary_provider_id = EXCLUDED.long_term_summary_provider_id,
-                long_term_summary_model = EXCLUDED.long_term_summary_model,
-                long_term_summary_configured = EXCLUDED.long_term_summary_configured,
+                temporary_summary_provider_id = EXCLUDED.temporary_summary_provider_id,
+                temporary_summary_model = EXCLUDED.temporary_summary_model,
                 title_api_url = CASE
                     WHEN EXCLUDED.title_provider_id IS NOT NULL THEN ''
                     ELSE conversation_model_settings.title_api_url
@@ -1249,20 +1664,28 @@ async def save_conversation_model_settings(
             embedding_model or "",
             embedding_api_key,
             int(long_term_recall_limit),
-            int(long_term_recall_token_budget),
+            int(long_term_recall_char_budget),
+            int(long_term_recall_entry_char_limit),
             bool(title_enabled),
             int(title_provider_id) if title_provider_id is not None else None,
             title_model or "",
             int(handoff_provider_id) if handoff_provider_id is not None else None,
             handoff_model or "",
             (
-                int(long_term_summary_provider_id)
-                if long_term_summary_provider_id is not None else None
+                int(temporary_summary_provider_id)
+                if temporary_summary_provider_id is not None else None
             ),
-            long_term_summary_model or "",
-            bool(long_term_summary_configured),
+            temporary_summary_model or "",
+            cross_conversation_recall_enabled,
         )
-    return dict(row)
+        if history_recall_settings is not None:
+            await conn.execute("""
+                UPDATE conversation_model_settings SET history_recall_settings = $1::jsonb WHERE id = 1
+            """, json.dumps(history_recall_settings))
+    result = dict(row)
+    if history_recall_settings is not None:
+        result['history_recall_settings'] = history_recall_settings
+    return result
 
 
 async def save_ocr_settings(enabled: bool, api_url: str, model: str,
@@ -1300,35 +1723,57 @@ async def get_heartbeat_settings(defaults: dict | None = None) -> dict:
     return {
         "enabled": bool(defaults.get("enabled", False)),
         "interval_minutes": int(defaults.get("interval_minutes", 30)),
-        "provider": str(defaults.get("provider") or "openai"),
-        "model": str(defaults.get("model") or ""),
         "updated_at": None,
     }
 
 
-async def save_heartbeat_settings(enabled: bool, interval_minutes: int,
-                                  provider: str, model: str) -> dict:
+async def save_heartbeat_settings(enabled: bool, interval_minutes: int) -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             INSERT INTO heartbeat_settings
-                (id, enabled, interval_minutes, provider, model, updated_at)
-            VALUES (1, $1, $2, $3, $4, NOW())
+                (id, enabled, interval_minutes, updated_at)
+            VALUES (1, $1, $2, NOW())
             ON CONFLICT (id) DO UPDATE SET
                 enabled = EXCLUDED.enabled,
                 interval_minutes = EXCLUDED.interval_minutes,
-                provider = EXCLUDED.provider,
-                model = EXCLUDED.model,
                 updated_at = NOW()
             RETURNING *
             """,
             bool(enabled),
             max(1, int(interval_minutes or 30)),
-            provider or "openai",
-            model or "",
         )
     return dict(row)
+
+
+async def save_conversation_chat_route(
+    conversation_id: int,
+    route_provider: str,
+    provider_profile_id: int | None,
+    provider_name: str,
+    model: str,
+    provider_snapshot: dict | None = None,
+) -> None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE conversations
+            SET last_route_provider = $2,
+                last_provider_profile_id = $3,
+                last_provider_name = $4,
+                last_model = $5,
+                last_chat_provider_snapshot = $6::jsonb
+            WHERE id = $1
+            """,
+            int(conversation_id),
+            str(route_provider or "").strip().lower(),
+            int(provider_profile_id) if provider_profile_id is not None else None,
+            str(provider_name or "").strip(),
+            str(model or "").strip(),
+            json.dumps(provider_snapshot) if provider_snapshot is not None else None,
+        )
 
 
 async def save_heartbeat_activity(
@@ -1387,20 +1832,22 @@ async def get_heartbeat_activities(limit: int = 100) -> list[dict]:
 def _heartbeat_activity_context_text(row: dict) -> str:
     events = _json_list(row.get("tool_events"))
     lines = [
-        "<heartbeat_activity>",
-        f"苏醒活动 #{row.get('id')}（用户离开约 {int(row.get('elapsed_minutes') or 0)} 分钟时）",
+        (
+            f'<heartbeat_activity id="{row.get("id")}" '
+            f'elapsed_minutes="{int(row.get("elapsed_minutes") or 0)}">'
+        ),
     ]
     for event in events:
         name = str(event.get("name") or "tool")
         input_text = json.dumps(event.get("input") or {}, ensure_ascii=False, default=str)
         result_text = str(event.get("result") or "")
-        status_text = "成功" if event.get("ok") else "失败"
-        lines.append(f"- 调用 {name}（{status_text}）")
-        lines.append(f"  输入：{input_text}")
-        lines.append(f"  结果：{result_text}")
-    final_text = str(row.get("final_text") or "").strip()
-    if final_text:
-        lines.append(f"结束时的判断：{final_text}")
+        status_text = "ok" if event.get("ok") else "error"
+        lines.extend([
+            f'<tool name="{html_escape(name, quote=True)}" status="{status_text}">',
+            f"<input>{html_escape(input_text)}</input>",
+            f"<result>{html_escape(result_text)}</result>",
+            "</tool>",
+        ])
     lines.append("</heartbeat_activity>")
     return "\n".join(lines)
 
@@ -2107,7 +2554,42 @@ async def get_all_memories_detail():
         return [dict(r) for r in rows]
 
 
+GATEWAY_BACKUP_V21_SETTINGS = frozenset({"identity_presets", "flow_memory_settings"})
+
 GATEWAY_BACKUP_TABLES = {
+    "diary_monthly_summaries": {
+        "table": "diary_monthly_summaries",
+        "columns": ("month", "content", "request_id", "status", "error", "source_ids", "updated_at", "expires_at"),
+        "json": {"source_ids"},
+        "order_by": "month ASC",
+        "sequence": False,
+    },
+    "identity_presets": {
+        "table": "identity_presets",
+        "columns": ("id", "user_name", "assistant_name", "user_avatar", "assistant_avatar", "updated_at"),
+        "defaults": {"id": 1, "user_name": "", "assistant_name": "", "user_avatar": "", "assistant_avatar": ""},
+        "sequence": False,
+    },
+    "flow_memory_settings": {
+        "table": "flow_memory_settings",
+        "columns": ("id", "max_items", "updated_at"),
+        "defaults": {"id": 1, "max_items": FLOW_MEMORY_DEFAULT_MAX_ITEMS},
+        "sequence": False,
+    },
+    "cover_notes": {
+        "table": "cover_notes",
+        "columns": ("id", "title", "content", "author", "revision", "created_at", "updated_at"),
+    },
+    "nocturne_extraction_jobs": {
+        "table": "nocturne_extraction_jobs",
+        "columns": (
+            "flow_memory_id", "source_key", "summary", "items", "next_index",
+            "status", "attempts", "retry_at", "updated_at",
+        ),
+        "json": {"items"},
+        "order_by": "flow_memory_id ASC",
+        "sequence": False,
+    },
     "prompt_sections": {
         "table": "prompt_sections",
         "columns": (
@@ -2179,6 +2661,12 @@ GATEWAY_BACKUP_TABLES = {
         "columns": (
             "id", "name", "external_session_id", "max_messages", "is_active",
             "created_at", "updated_at", "cache_anchor_fingerprint",
+            "context_mode", "context_window_messages", "context_window_tokens",
+            "temporary_summary_trigger_tokens",
+            "temporary_summary_every_n_messages", "temporary_summary",
+            "temporary_summary_through_message_id",
+            "temporary_summary_claim_token",
+            "temporary_summary_claimed_at",
             "handoff_draft", "handoff_summary", "handoff_source_id",
             "handoff_message_ids", "handoff_summary_through_message_id",
             "handoff_summary_version", "handoff_summary_ready_for_flow",
@@ -2186,6 +2674,9 @@ GATEWAY_BACKUP_TABLES = {
             "heartbeat_last_user_message_id", "heartbeat_claim_token",
             "heartbeat_claimed_at", "heartbeat_last_sent_at",
             "heartbeat_last_checked_at",
+            "last_route_provider", "last_provider_profile_id",
+            "last_provider_name", "last_model", "auto_inject_captured_prompts",
+            "capture_frontend_prompts",
         ),
         "json": {
             "handoff_message_ids", "last_anthropic_tools",
@@ -2195,6 +2686,14 @@ GATEWAY_BACKUP_TABLES = {
             "handoff_message_ids": [],
             "handoff_summary_version": 0,
             "handoff_summary_ready_for_flow": False,
+            "context_mode": "full",
+            "context_window_messages": 50,
+            "context_window_tokens": 32000,
+            "temporary_summary_trigger_tokens": 8000,
+            "temporary_summary_every_n_messages": 0,
+            "temporary_summary": "",
+            "auto_inject_captured_prompts": True,
+            "capture_frontend_prompts": True,
         },
         "deferred": {"handoff_source_id"},
     },
@@ -2202,30 +2701,59 @@ GATEWAY_BACKUP_TABLES = {
         "table": "context_messages",
         "columns": (
             "id", "conversation_id", "role", "content", "created_at",
-            "content_json", "kind", "hidden", "affects_activity",
+            "content_json", "kind", "hidden", "affects_activity", "fragment_pending",
         ),
+        "defaults": {"fragment_pending": False},
         "json": {"content_json"},
     },
-    "memory_extraction_jobs": {
-        "table": "memory_extraction_jobs",
+    "conversation_prompt_sources": {
+        "table": "conversation_prompt_sources",
         "columns": (
-            "id", "source_conversation_id", "target_conversation_id",
-            "snapshot", "status", "attempts", "available_at", "lease_token",
-            "last_error", "created_at", "completed_at", "legacy_snapshot",
+            "id", "conversation_id", "content", "content_hash", "configured",
+            "initial_injected", "initial_message_id", "first_seen_at",
         ),
-        "json": {"snapshot", "legacy_snapshot"},
     },
-    "fragment_forgetting_pending": {
-        "table": "fragment_forgetting_pending",
-        "columns": ("memory_id", "content_snapshot", "created_at"),
-        "order_by": "memory_id ASC",
+    "conversation_extra_prompts": {
+        "table": "conversation_extra_prompts",
+        "columns": (
+            "id", "conversation_id", "source_id", "title", "content",
+            "position", "locked", "frequency", "interval_turns",
+            "turns_since_injection", "injection_count", "created_at", "updated_at",
+        ),
+    },
+    "extra_prompt_presets": {
+        "table": "extra_prompt_presets",
+        "columns": (
+            "id", "title", "content", "position", "locked", "frequency",
+            "interval_turns", "created_at", "updated_at",
+        ),
+    },
+    "conversation_extra_prompt_injections": {
+        "table": "conversation_extra_prompt_injections",
+        "columns": (
+            "id", "prompt_id", "conversation_id", "message_id", "position",
+            "title", "content", "created_at",
+        ),
+    },
+    "raw_memory_ledger": {
+        "table": "raw_memory_ledger",
+        "columns": ("source_key", "memory_id", "created_at"),
+        "order_by": "source_key ASC",
         "sequence": False,
     },
 }
 
 GATEWAY_BACKUP_DELETE_ORDER = (
-    "fragment_forgetting_pending",
-    "memory_extraction_jobs",
+    "diary_monthly_summaries",
+    "identity_presets",
+    "flow_memory_settings",
+    "cover_notes",
+    "extra_prompt_presets",
+    "nocturne_extraction_jobs",
+    "raw_memory_ledger",
+    "conversation_extra_prompt_injections",
+    "conversation_extra_prompts",
+    "conversation_prompt_sources",
     "context_messages",
     "conversations",
     "memory_update_proposals",
@@ -2237,6 +2765,11 @@ GATEWAY_BACKUP_DELETE_ORDER = (
 )
 
 GATEWAY_BACKUP_INSERT_ORDER = (
+    "diary_monthly_summaries",
+    "identity_presets",
+    "flow_memory_settings",
+    "cover_notes",
+    "extra_prompt_presets",
     "prompt_sections",
     "memories",
     "standing_memory_blocks",
@@ -2245,24 +2778,120 @@ GATEWAY_BACKUP_INSERT_ORDER = (
     "memory_update_proposals",
     "conversations",
     "context_messages",
-    "memory_extraction_jobs",
-    "fragment_forgetting_pending",
+    "conversation_prompt_sources",
+    "conversation_extra_prompts",
+    "conversation_extra_prompt_injections",
+    "raw_memory_ledger",
+    "nocturne_extraction_jobs",
 )
 
 
-async def export_gateway_backup_data() -> dict:
+GATEWAY_BACKUP_MESSAGE_SECTIONS = frozenset({
+    "context_messages", "conversation_extra_prompt_injections",
+})
+
+
+def _backup_row_without_messages(section: str, row: dict) -> dict:
+    """Keep configuration and summaries without references to omitted messages."""
+    if section == "conversations":
+        return {
+            **row,
+            "cache_anchor_fingerprint": None,
+            "handoff_message_ids": [],
+            "handoff_summary_through_message_id": None,
+            "temporary_summary_through_message_id": None,
+            "temporary_summary_claim_token": None,
+            "temporary_summary_claimed_at": None,
+            "heartbeat_count": 0,
+            "heartbeat_last_user_message_id": None,
+            "heartbeat_claim_token": None,
+            "heartbeat_claimed_at": None,
+            "heartbeat_last_sent_at": None,
+            "heartbeat_last_checked_at": None,
+            "last_anthropic_tools": None,
+            "last_frontend_tool_names": None,
+        }
+    if section == "conversation_prompt_sources":
+        # Retain whether historical captures were already consumed, otherwise
+        # every old captured frontend prompt would be injected on the next turn.
+        return {**row, "initial_message_id": None}
+    if section == "conversation_extra_prompts":
+        return {**row, "turns_since_injection": 0, "injection_count": 0}
+    return row
+
+
+def gateway_backup_without_messages(data: dict) -> dict:
+    # Do not fill in missing core sections: incomplete files must still fail
+    # validation rather than silently clearing the corresponding live data.
+    return {
+        **data,
+        **{
+            section: ([] if section in GATEWAY_BACKUP_MESSAGE_SECTIONS else [
+                _backup_row_without_messages(section, row) for row in rows
+            ])
+            for section, rows in data.items()
+            if section in GATEWAY_BACKUP_TABLES and isinstance(rows, list)
+        },
+    }
+
+
+async def iter_gateway_backup_data(include_messages: bool = True, on_progress=None):
+    """Yield a consistent backup without collecting whole tables in memory.
+
+    The first item is the memory count. A (section, None) item starts each
+    array, followed by its rows. Keep the transaction open while the HTTP
+    response consumes this iterator so all tables share one snapshot.
+    """
+    exported = 0
+    if on_progress:
+        on_progress("connecting", exported)
     pool = await get_pool()
-    result = {}
     async with pool.acquire() as conn:
         async with conn.transaction(isolation="repeatable_read", readonly=True):
+            if on_progress:
+                on_progress("counting", exported)
+            yield "total", await conn.fetchval("SELECT COUNT(*) FROM memories")
             for section, spec in GATEWAY_BACKUP_TABLES.items():
+                if on_progress:
+                    on_progress(section, exported)
+                yield section, None
+                # Captures are runtime input, not saved prompts. Keep an empty
+                # section so the backup remains compatible with existing readers.
+                if section == "conversation_prompt_sources":
+                    continue
+                if not include_messages and section in GATEWAY_BACKUP_MESSAGE_SECTIONS:
+                    continue
+                # Older/new databases may never have run the retired worker's
+                # migration. Keep the read-only snapshot valid without DDL or
+                # catching UndefinedTableError (which would abort the snapshot).
+                if section == "raw_memory_ledger" and not await conn.fetchval(
+                    "SELECT to_regclass('raw_memory_ledger') IS NOT NULL"
+                ):
+                    continue
                 columns = ", ".join(spec["columns"])
                 order_by = spec.get("order_by", "id ASC")
-                rows = await conn.fetch(
-                    f"SELECT {columns} FROM {spec['table']} ORDER BY {order_by}"
-                )
-                result[section] = [dict(row) for row in rows]
-    return result
+                query = f"SELECT {columns} FROM {spec['table']} ORDER BY {order_by}"
+                # Bound memory use while avoiding a database round trip per row.
+                has_rows = False
+                async for row in conn.cursor(query, prefetch=128):
+                    has_rows = True
+                    value = dict(row)
+                    if section == "context_messages":
+                        value["content_json"] = without_images(value.get("content_json"))
+                    if section == "conversation_extra_prompts":
+                        # Saved content is independent of the omitted capture.
+                        value["source_id"] = None
+                    exported += 1
+                    if on_progress and exported % 128 == 0:
+                        on_progress(section, exported)
+                    yield section, value if include_messages else _backup_row_without_messages(section, value)
+                if section == "flow_memory_settings" and not has_rows:
+                    # Preserve the effective default even when it came from this
+                    # server's environment and no settings row was saved yet.
+                    exported += 1
+                    yield section, {"id": 1, "max_items": FLOW_MEMORY_DEFAULT_MAX_ITEMS, "updated_at": None}
+                if on_progress:
+                    on_progress(section, exported)
 
 
 def _backup_value(column: str, value, json_columns: set[str]):
@@ -2304,10 +2933,26 @@ async def _restore_backup_section(conn, section: str, rows: list[dict]) -> int:
         f"INSERT INTO {spec['table']} ({', '.join(insert_columns)}) "
         f"VALUES ({', '.join(placeholders)})"
     )
-    restored = 0
+    batch = []
     for raw_row in rows:
         if not isinstance(raw_row, dict):
             raise ValueError(f"invalid row in {section}")
+        if section == "context_messages":
+            raw_row = {**raw_row, "content_json": without_images(raw_row.get("content_json"))}
+        if section == "diary_monthly_summaries":
+            from diary_monthly import month_range
+            month_range(raw_row.get("month", ""))
+            content = raw_row.get("content", "")
+            if not isinstance(content, str):
+                raise ValueError("invalid monthly summary content")
+            # Restored backups carry saved text, never a live model request.
+            # Fresh IDs prevent old in-flight workers from overwriting restored text.
+            raw_row = {**raw_row, "request_id": uuid.uuid4(),
+                       "status": "completed" if content.strip() else "failed",
+                       "error": "" if content.strip() else "备份中没有已完成的总结正文",
+                       "source_ids": raw_row.get("source_ids") or [],
+                       "updated_at": raw_row.get("updated_at") or datetime.now(timezone.utc),
+                       "expires_at": datetime.now(timezone.utc)}
         values = [
             _backup_value(
                 column,
@@ -2316,20 +2961,30 @@ async def _restore_backup_section(conn, section: str, rows: list[dict]) -> int:
             )
             for column in insert_columns
         ]
-        await conn.execute(query, *values)
-        restored += 1
+        batch.append(values)
+        if len(batch) >= 200:
+            await conn.executemany(query, batch)
+            batch = []
+    if batch:
+        await conn.executemany(query, batch)
 
     for deferred_column in deferred:
+        batch = []
         for raw_row in rows:
             value = raw_row.get(deferred_column)
             if value is None:
                 continue
-            await conn.execute(
-                f"UPDATE {spec['table']} SET {deferred_column} = $1 WHERE id = $2",
-                value,
-                raw_row.get("id"),
+            batch.append((value, raw_row.get("id")))
+            if len(batch) >= 200:
+                await conn.executemany(
+                    f"UPDATE {spec['table']} SET {deferred_column} = $1 WHERE id = $2", batch
+                )
+                batch = []
+        if batch:
+            await conn.executemany(
+                f"UPDATE {spec['table']} SET {deferred_column} = $1 WHERE id = $2", batch
             )
-    return restored
+    return len(rows)
 
 
 async def _reset_backup_sequence(conn, table: str) -> None:
@@ -2347,41 +3002,87 @@ async def _reset_backup_sequence(conn, table: str) -> None:
 async def restore_gateway_backup_data(data: dict) -> dict:
     if not isinstance(data, dict):
         raise ValueError("invalid backup payload")
+    version = data.get("schema_version")
+    if type(version) is int and 2 <= version < 22:
+        data = {**data, "diary_monthly_summaries": []}
+    legacy = type(version) is int and 2 <= version < 21
+    preserved_settings = set()
     for section in GATEWAY_BACKUP_TABLES:
+        if section not in data and legacy and section in GATEWAY_BACKUP_V21_SETTINGS:
+            preserved_settings.add(section)
+            continue
         if section not in data or not isinstance(data[section], list):
             raise ValueError(f"backup section missing: {section}")
 
-    pool = await get_pool()
-    restored = {}
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            for section in GATEWAY_BACKUP_DELETE_ORDER:
-                await conn.execute(f"DELETE FROM {GATEWAY_BACKUP_TABLES[section]['table']}")
-            for section in GATEWAY_BACKUP_INSERT_ORDER:
-                restored[section] = await _restore_backup_section(
-                    conn, section, data[section]
-                )
-            # A process that was working when the backup was taken no longer
-            # owns its lease after restore. Requeue it so a fresh worker can
-            # safely resume from the persisted snapshots.
-            await conn.execute("""
-                UPDATE memory_extraction_jobs
-                SET status = 'pending', lease_token = NULL, available_at = NOW()
-                WHERE status = 'running'
-            """)
-            for spec in GATEWAY_BACKUP_TABLES.values():
-                if spec.get("sequence", True):
-                    await _reset_backup_sequence(conn, spec["table"])
-            await _promote_flow_memory_overflow(conn)
-    return restored
+    started = time.monotonic()
+    stage = "等待数据库连接"
+    print("[backup-restore] waiting for database connection", flush=True)
+    try:
+        # Includes pool acquisition and lock waits; expiration unwinds the
+        # transaction before the caller receives an error.
+        async with asyncio.timeout(600) as deadline:
+            pool = await get_pool()
+            restored = {}
+            async with pool.acquire(timeout=30) as conn:
+                async with conn.transaction():
+                    await conn.execute("SET LOCAL lock_timeout = '30s'")
+                    stage = "等待后台记忆提取或会话操作结束"
+                    print("[backup-restore] waiting for extraction/conversation locks", flush=True)
+                    # Preserve exclusion while extraction performs remote writes.
+                    await conn.execute("SELECT pg_advisory_xact_lock($1)", NOCTURNE_EXTRACTION_LOCK)
+                    await conn.execute("SELECT pg_advisory_xact_lock($1)", CONVERSATION_SWITCH_LOCK)
+                    await conn.execute("SELECT pg_advisory_xact_lock(194731, 2)")
+                    stage = "检查备份兼容表"
+                    await _ensure_legacy_raw_memory_ledger(conn)
+                    stage = "清理旧数据"
+                    print("[backup-restore] clearing existing rows", flush=True)
+                    for section in GATEWAY_BACKUP_DELETE_ORDER:
+                        if section in preserved_settings:
+                            continue
+                        await conn.execute(f"DELETE FROM {GATEWAY_BACKUP_TABLES[section]['table']}")
+                    for section in GATEWAY_BACKUP_INSERT_ORDER:
+                        if section in preserved_settings:
+                            continue
+                        stage = f"恢复 {section}"
+                        print(f"[backup-restore] section={section} rows={len(data[section])} starting", flush=True)
+                        restored[section] = await _restore_backup_section(
+                            conn, section, data[section]
+                        )
+                        print(f"[backup-restore] section={section} done elapsed={time.monotonic() - started:.1f}s", flush=True)
+                    stage = "完成恢复"
+                    # Retain progress, but invalidate ownership of in-flight jobs.
+                    await conn.execute("""
+                        UPDATE nocturne_extraction_jobs SET
+                            status = CASE WHEN attempts >= 5 THEN 'failed' ELSE 'retry' END,
+                            lease_token = NULL, retry_at = NOW(), updated_at = NOW()
+                        WHERE status = 'processing'
+                    """)
+                    for spec in GATEWAY_BACKUP_TABLES.values():
+                        if spec.get("sequence", True):
+                            await _reset_backup_sequence(conn, spec["table"])
+                    await _promote_flow_memory_overflow(conn)
+        print(f"[backup-restore] committed elapsed={time.monotonic() - started:.1f}s", flush=True)
+        return restored
+    except asyncpg.LockNotAvailableError as exc:
+        print(f"[backup-restore] lock timeout stage={stage}", flush=True)
+        raise ValueError(f"{stage}时等待数据库锁超过 30 秒，恢复已回滚，请稍后重试") from exc
+    except TimeoutError as exc:
+        print(f"[backup-restore] timeout stage={stage}", flush=True)
+        reason = "恢复总耗时超过 10 分钟" if deadline.expired() else "数据库请求超时"
+        # Cancellation unwinds an active transaction. If it races with COMMIT
+        # or pool cleanup, the client must verify the result before retrying.
+        raise ValueError(f"{stage}时{reason}，请检查服务日志并核对数据后再重试") from exc
+    except Exception as exc:
+        print(f"[backup-restore] failed stage={stage} error={type(exc).__name__}", flush=True)
+        raise
 
 
 async def update_memory(
-    memory_id: int,
-    content: str = None,
+    memory_id: int, 
+    content: str = None, 
     importance: int = None,
-    memory_type: str = None,
-    pinned: bool = None,
+    memory_type: str = None, 
+    pinned: bool = None, 
 ):
     pool = await get_pool()
 
@@ -2389,31 +3090,32 @@ async def update_memory(
         updates = []
         params = []
         idx = 1
-
+        
         if content is not None:
             updates.append(f"content = ${idx}")
             params.append(content)
             idx += 1
-
+        
         if importance is not None:
             updates.append(f"importance = ${idx}")
             params.append(importance)
             idx += 1
-
+        
         if memory_type is not None:
             updates.append(f"type = ${idx}")
             params.append(memory_type)
             idx += 1
-
+        
         if pinned is not None:  # ← 新增
             updates.append(f"pinned = ${idx}")
             params.append(pinned)
             idx += 1
-
+        
         if updates:
             params.append(memory_id)
-            sql = f"UPDATE memories SET {', '.join(updates)} WHERE id = ${idx}"
-            await conn.execute(sql, *params)
+            sql = f"UPDATE memories SET {', '.join(updates)} WHERE id = ${idx} RETURNING id"
+            if await conn.fetchval(sql, *params) is None:
+                return False
 
     # embedding 更新逻辑保持不变
     if content is not None:
@@ -2422,18 +3124,19 @@ async def update_memory(
         except Exception as e:
             print(f"⚠️ update_memory embedding failed for id={memory_id}: {e}")
 
+    return True
+
 
 async def delete_memory(memory_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM memories WHERE id = $1", memory_id)
+        return await conn.fetchval("DELETE FROM memories WHERE id = $1 RETURNING id", memory_id) is not None
 
 async def delete_memories_batch(memory_ids: list):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            "DELETE FROM memories WHERE id = ANY($1::int[])", memory_ids
-        )
+        rows = await conn.fetch("DELETE FROM memories WHERE id = ANY($1::int[]) RETURNING id", memory_ids)
+        return len(rows)
 
 # ============================================================
 # 记忆分层：按类型/标签查询
@@ -2663,6 +3366,7 @@ async def _promote_flow_memory_overflow(
             "entry_kind": "diary",
             "source_flow_memory_id": flow_id,
             "promoted_from": "standing_flow",
+            "author_role": "assistant",
             "flow_entered_on": entered_on.isoformat(),
             "promotion_memory_date_source": (
                 "title" if title_date else "flow_entered_on"
@@ -2710,6 +3414,17 @@ async def enforce_flow_memory_window() -> list[int]:
             return await _promote_flow_memory_overflow(conn)
 
 
+@asynccontextmanager
+async def _standing_connection(connection=None):
+    """Reuse the caller's transaction for a batch of pending memory changes."""
+    if connection is not None:
+        yield connection
+    else:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            yield conn
+
+
 async def create_standing_memory_block(
     title: str,
     content: str = "",
@@ -2722,13 +3437,13 @@ async def create_standing_memory_block(
     inject_on_first_turn: bool = True,
     sort_order: int | None = None,
     metadata: dict | None = None,
+    *, connection=None,
 ) -> dict:
-    pool = await get_pool()
     title = (title or "").strip()
     if not title:
         title = "Untitled"
     inject_every_n = max(1, int(inject_every_n or 1))
-    async with pool.acquire() as conn:
+    async with _standing_connection(connection) as conn:
         if sort_order is None:
             sort_order = await conn.fetchval(
                 """
@@ -2768,6 +3483,7 @@ async def upsert_pending_standing_memory_operation(
     target_block_id: int | None = None,
     content: str = "",
     metadata: dict | None = None,
+    *, connection=None,
 ) -> tuple[dict, bool]:
     """Create or replace a model-authored pending operation for standing memory."""
     operation = str(operation or "").strip().lower()
@@ -2781,8 +3497,7 @@ async def upsert_pending_standing_memory_operation(
         raise ValueError("target_block_id is required")
 
     target = None
-    pool = await get_pool()
-    async with pool.acquire() as conn:
+    async with _standing_connection(connection) as conn:
         if operation == "create":
             duplicate = await conn.fetchrow(
                 """
@@ -2867,6 +3582,7 @@ async def upsert_pending_standing_memory_operation(
         source="model",
         layer=layer,
         inject_enabled=False,
+        connection=connection,
         metadata={
             **(metadata or {}),
             "pending_operation": operation,
@@ -3098,13 +3814,11 @@ def long_term_memory_summary(memory: dict) -> str:
 
 
 def long_term_memory_kind(memory: dict) -> str:
-    """Split archived handoff fragments from authored diary entries."""
+    """Classify legacy fragment rows so active diary paths can ignore them."""
     metadata = _json_object(memory.get("metadata"))
     explicit = str(metadata.get("entry_kind") or "").strip().lower()
     if explicit in {"fragment", "diary"}:
         return explicit
-    # Flow overflow is a diary source. Fragments exist only as explicit rows
-    # created from old diary summaries or by the memory extractor.
     return "diary"
 
 
@@ -3132,24 +3846,15 @@ async def create_long_term_memory(
     metadata: dict | None = None,
 ) -> dict:
     metadata = metadata or {}
-    is_fragment = long_term_memory_kind({"metadata": metadata}) == "fragment"
     title = str(title or "").strip()
     content = str(content or "").strip()
-    if not title and not is_fragment:
+    if not title:
         raise ValueError("title is required")
     if not content:
         raise ValueError("content is required")
-    if is_fragment:
-        title = ""
-        memory_date = None
-    else:
-        memory_date = _normalize_long_term_memory_date(memory_date)
+    memory_date = _normalize_long_term_memory_date(memory_date)
     normalized_keywords = _normalize_long_term_keywords(keywords)
-    summary_text = (
-        "" if is_fragment
-        else str(summary or "").strip() if summary is not None
-        else ""
-    )
+    summary_text = str(summary or "").strip() if summary is not None else ""
     source_flow_memory_id = metadata.get("source_flow_memory_id")
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -3157,9 +3862,7 @@ async def create_long_term_memory(
             INSERT INTO long_term_memories
                 (title, keywords, summary, content, memory_date, priority, enabled,
                  metadata)
-            VALUES ($1, $2::jsonb, $3, $4,
-                    CASE WHEN $9::boolean THEN NULL
-                         ELSE COALESCE($5::date, CURRENT_DATE) END,
+            VALUES ($1, $2::jsonb, $3, $4, COALESCE($5::date, CURRENT_DATE),
                     $6, $7, $8::jsonb)
         """
         if source_flow_memory_id is not None:
@@ -3184,7 +3887,6 @@ async def create_long_term_memory(
             int(priority or 0),
             bool(enabled),
             json.dumps(metadata, ensure_ascii=False),
-            is_fragment,
         )
         if row is None and source_flow_memory_id is not None:
             row = await conn.fetchrow(
@@ -3233,7 +3935,8 @@ async def get_long_term_memories() -> list[dict]:
         rows = await conn.fetch(
             """SELECT id, title, keywords, summary, content, memory_date,
                       priority, enabled, metadata, created_at
-               FROM long_term_memories"""
+               FROM long_term_memories
+               WHERE metadata->>'source' IS DISTINCT FROM 'raw_user_quotes'"""
         )
         result = []
         for row in rows:
@@ -3247,6 +3950,28 @@ async def get_long_term_memories() -> list[dict]:
         return result
 
 
+async def get_diary_list() -> list[dict]:
+    """Return the lightweight diary directory without body or metadata."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, title, keywords, memory_date,
+                   metadata->>'author_role' AS author_role
+            FROM long_term_memories
+            WHERE metadata->>'source' IS DISTINCT FROM 'raw_user_quotes'
+              AND metadata->>'entry_kind' IS DISTINCT FROM 'fragment'
+            ORDER BY memory_date ASC NULLS LAST, id ASC
+            """
+        )
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["keywords"] = _json_list(item.get("keywords"))
+        result.append(item)
+    return result
+
+
 async def get_long_term_memory_catalog() -> list[dict]:
     """Return only model-facing directory metadata, never long-term content."""
     pool = await get_pool()
@@ -3254,6 +3979,7 @@ async def get_long_term_memory_catalog() -> list[dict]:
         rows = await conn.fetch("""
             SELECT id, title, keywords, summary
             FROM long_term_memories
+            WHERE metadata->>'source' IS DISTINCT FROM 'raw_user_quotes'
             ORDER BY memory_date ASC NULLS LAST, id ASC
         """)
     result = []
@@ -3275,6 +4001,7 @@ async def get_recent_long_term_memory_catalog(limit: int) -> list[dict]:
         rows = await conn.fetch("""
             SELECT id, title, keywords, summary, memory_date
             FROM long_term_memories
+            WHERE metadata->>'source' IS DISTINCT FROM 'raw_user_quotes'
             ORDER BY memory_date DESC NULLS LAST, id DESC
             LIMIT $1
         """, limit)
@@ -3290,17 +4017,18 @@ async def get_recent_long_term_memory_catalog(limit: int) -> list[dict]:
 async def get_long_term_memory_counts() -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT metadata FROM long_term_memories")
+        diary_count = await conn.fetchval(
+            """
+            SELECT COUNT(*) FROM long_term_memories
+            WHERE metadata->>'source' IS DISTINCT FROM 'raw_user_quotes'
+              AND metadata->>'entry_kind' IS DISTINCT FROM 'fragment'
+            """
+        )
         pending_count = await conn.fetchval(
             "SELECT COUNT(*) FROM long_term_memory_proposals"
         )
-    fragment_count = sum(
-        long_term_memory_kind(dict(row)) == "fragment" for row in rows
-    )
     return {
-        "memory_count": len(rows),
-        "fragment_count": fragment_count,
-        "diary_count": len(rows) - fragment_count,
+        "diary_count": int(diary_count or 0),
         "pending_count": int(pending_count or 0),
     }
 
@@ -3336,7 +4064,10 @@ async def update_long_term_memory(
     priority: int = 0,
     enabled: bool = True,
     summary: str | None = None,
+    author_role: str | None = None,
 ) -> dict | None:
+    if author_role is not None:
+        validate_author_role(author_role)
     title = str(title or "").strip()
     content = str(content or "").strip()
     if not title:
@@ -3363,7 +4094,9 @@ async def update_long_term_memory(
                 content = $5,
                 memory_date = COALESCE($6::date, memory_date),
                 priority = $7,
-                enabled = $8
+                enabled = $8,
+                metadata = CASE WHEN $9::text IS NULL THEN metadata
+                    ELSE COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('author_role', $9::text) END
             WHERE id = $1
             RETURNING *
             """,
@@ -3378,6 +4111,7 @@ async def update_long_term_memory(
             memory_date,
             int(priority or 0),
             bool(enabled),
+            author_role,
         )
         if not row:
             return None
@@ -3685,14 +4419,25 @@ async def apply_pending_long_term_memory_operation(proposal_id: int) -> dict | N
             if not proposal:
                 return None
 
+            merge_sources = _json_object(proposal.get('metadata')).get('merge_sources')
+            if merge_sources is not None:
+                from diary_merge import apply_merge
+                return await apply_merge(conn, proposal, merge_sources)
+
             operation = str(proposal.get("operation") or "")
             target_id = proposal.get("target_memory_id")
             if operation == "create":
+                diary_metadata = {
+                    **_json_object(proposal.get("metadata")),
+                    "entry_kind": "diary",
+                }
                 memory = await conn.fetchrow(
                     """
                     INSERT INTO long_term_memories
-                        (title, keywords, summary, content, memory_date, priority, enabled)
-                    VALUES ($1, $2::jsonb, $3, $4, COALESCE($5, CURRENT_DATE), $6, $7)
+                        (title, keywords, summary, content, memory_date, priority,
+                         enabled, metadata)
+                    VALUES ($1, $2::jsonb, '', $3, COALESCE($4, CURRENT_DATE),
+                            $5, $6, $7::jsonb)
                     RETURNING *
                     """,
                     proposal.get("title") or "",
@@ -3700,14 +4445,11 @@ async def apply_pending_long_term_memory_operation(proposal_id: int) -> dict | N
                         _json_list(proposal.get("keywords")),
                         ensure_ascii=False,
                     ),
-                    long_term_memory_summary({
-                        **dict(proposal),
-                        "keywords": _json_list(proposal.get("keywords")),
-                    }),
                     proposal.get("content") or "",
                     proposal.get("memory_date"),
                     int(proposal.get("priority") or 0),
                     bool(proposal.get("enabled", True)),
+                    json.dumps(diary_metadata, ensure_ascii=False),
                 )
             elif operation in {"edit", "delete"} and target_id:
                 target = await conn.fetchrow(
@@ -3720,8 +4462,12 @@ async def apply_pending_long_term_memory_operation(proposal_id: int) -> dict | N
                     memory = await conn.fetchrow(
                         """
                         UPDATE long_term_memories
-                        SET title = $2, keywords = $3::jsonb, summary = $4,
-                            content = $5, memory_date = COALESCE($6, memory_date)
+                        SET title = $2, keywords = $3::jsonb, summary = '',
+                            content = $4, memory_date = COALESCE($5, memory_date),
+                            metadata = jsonb_set(
+                                COALESCE(metadata, '{}'::jsonb),
+                                '{entry_kind}', '"diary"'::jsonb, TRUE
+                            )
                         WHERE id = $1
                         RETURNING *
                         """,
@@ -3731,10 +4477,6 @@ async def apply_pending_long_term_memory_operation(proposal_id: int) -> dict | N
                             _json_list(proposal.get("keywords")),
                             ensure_ascii=False,
                         ),
-                        long_term_memory_summary({
-                            **dict(proposal),
-                            "keywords": _json_list(proposal.get("keywords")),
-                        }),
                         proposal.get("content") or "",
                         proposal.get("memory_date"),
                     )
@@ -3791,6 +4533,8 @@ async def init_context_tables():
                 external_session_id TEXT UNIQUE,
                 max_messages INT DEFAULT 50,
                 is_active    BOOLEAN DEFAULT FALSE,
+                auto_inject_captured_prompts BOOLEAN NOT NULL DEFAULT TRUE,
+                capture_frontend_prompts BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at   TIMESTAMPTZ DEFAULT NOW(),
                 updated_at   TIMESTAMPTZ DEFAULT NOW()
             )
@@ -3801,6 +4545,15 @@ async def init_context_tables():
         await conn.execute("""
             ALTER TABLE conversations
                 ADD COLUMN IF NOT EXISTS cache_anchor_fingerprint TEXT,
+                ADD COLUMN IF NOT EXISTS context_mode TEXT NOT NULL DEFAULT 'full',
+                ADD COLUMN IF NOT EXISTS context_window_messages INT NOT NULL DEFAULT 50,
+                ADD COLUMN IF NOT EXISTS context_window_tokens INT NOT NULL DEFAULT 32000,
+                ADD COLUMN IF NOT EXISTS temporary_summary_trigger_tokens INT NOT NULL DEFAULT 8000,
+                ADD COLUMN IF NOT EXISTS temporary_summary_every_n_messages INT NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS temporary_summary TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS temporary_summary_through_message_id BIGINT,
+                ADD COLUMN IF NOT EXISTS temporary_summary_claim_token TEXT,
+                ADD COLUMN IF NOT EXISTS temporary_summary_claimed_at TIMESTAMPTZ,
                 ADD COLUMN IF NOT EXISTS handoff_draft TEXT,
                 ADD COLUMN IF NOT EXISTS handoff_summary TEXT,
                 ADD COLUMN IF NOT EXISTS handoff_source_id INT REFERENCES conversations(id) ON DELETE SET NULL,
@@ -3815,7 +4568,14 @@ async def init_context_tables():
                 ADD COLUMN IF NOT EXISTS heartbeat_claim_token TEXT,
                 ADD COLUMN IF NOT EXISTS heartbeat_claimed_at TIMESTAMPTZ,
                 ADD COLUMN IF NOT EXISTS heartbeat_last_sent_at TIMESTAMPTZ,
-                ADD COLUMN IF NOT EXISTS heartbeat_last_checked_at TIMESTAMPTZ
+                ADD COLUMN IF NOT EXISTS heartbeat_last_checked_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS last_route_provider TEXT,
+                ADD COLUMN IF NOT EXISTS last_provider_profile_id INT,
+                ADD COLUMN IF NOT EXISTS last_provider_name TEXT,
+                ADD COLUMN IF NOT EXISTS last_model TEXT,
+                ADD COLUMN IF NOT EXISTS last_chat_provider_snapshot JSONB,
+                ADD COLUMN IF NOT EXISTS auto_inject_captured_prompts BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS capture_frontend_prompts BOOLEAN NOT NULL DEFAULT TRUE
         """)
         await conn.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_external_session
@@ -3852,6 +4612,9 @@ async def init_context_tables():
             ALTER TABLE context_messages ADD COLUMN IF NOT EXISTS content_json JSONB
         """)
         await conn.execute("""
+            ALTER TABLE context_messages ADD COLUMN IF NOT EXISTS reasoning_content TEXT
+        """)
+        await conn.execute("""
             ALTER TABLE context_messages
                 ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'chat',
                 ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE,
@@ -3868,6 +4631,146 @@ async def init_context_tables():
               AND role IN ('user', 'assistant')
               AND (role = 'user' OR content_json IS NULL)
         """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ctx_visible_conversation_id
+            ON context_messages(conversation_id, id DESC)
+            WHERE hidden = FALSE
+              AND role IN ('user', 'assistant')
+              AND (role = 'user' OR content_json IS NULL)
+        """)
+        await conn.execute("ALTER TABLE context_messages ADD COLUMN IF NOT EXISTS fragment_pending BOOLEAN NOT NULL DEFAULT FALSE")
+        await conn.execute("CREATE INDEX IF NOT EXISTS context_fragment_pending ON context_messages(conversation_id,id) WHERE fragment_pending")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_prompt_sources (
+                id              SERIAL PRIMARY KEY,
+                conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                content         TEXT NOT NULL,
+                content_hash    TEXT NOT NULL,
+                configured      BOOLEAN NOT NULL DEFAULT FALSE,
+                initial_injected BOOLEAN NOT NULL DEFAULT FALSE,
+                initial_message_id INT REFERENCES context_messages(id) ON DELETE SET NULL,
+                first_seen_at   TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (conversation_id, content_hash)
+            )
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_prompt_sources
+                ADD COLUMN IF NOT EXISTS configured BOOLEAN NOT NULL DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS initial_injected BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS initial_message_id INT REFERENCES context_messages(id) ON DELETE SET NULL,
+                ALTER COLUMN initial_injected SET DEFAULT FALSE
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_extra_prompts (
+                id              SERIAL PRIMARY KEY,
+                conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                source_id       INT REFERENCES conversation_prompt_sources(id) ON DELETE SET NULL,
+                title           TEXT NOT NULL DEFAULT '',
+                content         TEXT NOT NULL,
+                position        TEXT NOT NULL DEFAULT 'before' CHECK (position IN ('before', 'after')),
+                locked          BOOLEAN NOT NULL DEFAULT TRUE,
+                frequency       TEXT NOT NULL DEFAULT 'repeat' CHECK (frequency IN ('repeat', 'once')),
+                interval_turns  INT NOT NULL DEFAULT 1 CHECK (interval_turns >= 1),
+                turns_since_injection INT NOT NULL DEFAULT 0,
+                injection_count INT NOT NULL DEFAULT 0,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS extra_prompt_presets (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                position TEXT NOT NULL CHECK (position IN ('before', 'after')),
+                locked BOOLEAN NOT NULL DEFAULT TRUE,
+                frequency TEXT NOT NULL CHECK (frequency IN ('repeat', 'once')),
+                interval_turns INT NOT NULL DEFAULT 1 CHECK (interval_turns >= 1),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_extra_prompts
+                ADD COLUMN IF NOT EXISTS frequency TEXT NOT NULL DEFAULT 'repeat',
+                ADD COLUMN IF NOT EXISTS interval_turns INT NOT NULL DEFAULT 1,
+                ADD COLUMN IF NOT EXISTS turns_since_injection INT NOT NULL DEFAULT 0
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_extra_prompt_injections (
+                id              BIGSERIAL PRIMARY KEY,
+                prompt_id       INT NOT NULL REFERENCES conversation_extra_prompts(id) ON DELETE CASCADE,
+                conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                message_id      INT REFERENCES context_messages(id) ON DELETE SET NULL,
+                position        TEXT NOT NULL,
+                title           TEXT,
+                content         TEXT,
+                created_at      TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            ALTER TABLE conversation_extra_prompt_injections
+                ADD COLUMN IF NOT EXISTS title TEXT,
+                ADD COLUMN IF NOT EXISTS content TEXT
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_extra_prompts_conversation
+            ON conversation_extra_prompts(conversation_id, id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_extra_prompt_injections_conversation
+            ON conversation_extra_prompt_injections(conversation_id, created_at DESC)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_extra_prompt_injections_message
+            ON conversation_extra_prompt_injections(conversation_id, message_id)
+        """)
+
+        # Index referencing columns so cascading deletes do not scan entire tables.
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_conversations_handoff_source
+            ON conversations(handoff_source_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prompt_sources_initial_message
+            ON conversation_prompt_sources(initial_message_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_extra_prompts_source
+            ON conversation_extra_prompts(source_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_extra_prompt_injections_message
+            ON conversation_extra_prompt_injections(message_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_extra_prompt_injections_prompt
+            ON conversation_extra_prompt_injections(prompt_id)
+        """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS nocturne_extraction_jobs (
+                flow_memory_id BIGINT PRIMARY KEY,
+                source_key TEXT NOT NULL DEFAULT '',
+                summary TEXT NOT NULL,
+                items JSONB,
+                next_index INT NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INT NOT NULL DEFAULT 0,
+                lease_token UUID,
+                retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            ALTER TABLE nocturne_extraction_jobs
+                ADD COLUMN IF NOT EXISTS source_key TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS lease_token UUID
+        """)
+        await conn.execute("""
+            UPDATE nocturne_extraction_jobs SET source_key = 'ash-flow-' || flow_memory_id::text
+            WHERE source_key = ''
+        """)
 
         count = await conn.fetchval("SELECT COUNT(*) FROM conversations")
         if count == 0:
@@ -3880,9 +4783,12 @@ async def init_context_tables():
     await init_heartbeat_activity_tables()
     await init_heartbeat_settings_table()
     await init_route_settings_table()
+    await init_identity_presets_table()
     await init_anthropic_credentials_table()
     await init_ocr_settings_table()
+    await init_mcp_settings_table()
     await init_openai_provider_profiles_table()
+    await init_anthropic_provider_profiles_table()
     await init_conversation_model_settings_table()
 
 
@@ -3923,15 +4829,12 @@ async def get_all_conversations(include_message_stats: bool = True) -> list:
         if not include_message_stats:
             rows = await conn.fetch("""
                 SELECT c.id, c.name, c.external_session_id, c.max_messages,
+                       c.context_mode, c.context_window_messages,
+                       c.context_window_tokens,
+                       c.temporary_summary_trigger_tokens,
+                       c.temporary_summary_every_n_messages,
                        c.is_active, c.created_at, c.updated_at,
-                       CASE WHEN c.is_active THEN (
-                           SELECT COUNT(*)
-                           FROM context_messages m
-                           WHERE m.conversation_id = c.id
-                             AND m.hidden = FALSE
-                             AND m.role IN ('user', 'assistant')
-                             AND (m.role = 'user' OR m.content_json IS NULL)
-                       ) ELSE NULL::BIGINT END AS message_count,
+                       NULL::BIGINT AS message_count,
                        c.created_at AS started_at,
                        c.updated_at AS last_message_at
                 FROM conversations c
@@ -3940,6 +4843,10 @@ async def get_all_conversations(include_message_stats: bool = True) -> list:
             return [dict(r) for r in rows]
         rows = await conn.fetch("""
             SELECT c.id, c.name, c.external_session_id, c.max_messages, c.is_active,
+                   c.context_mode, c.context_window_messages,
+                   c.context_window_tokens,
+                   c.temporary_summary_trigger_tokens,
+                   c.temporary_summary_every_n_messages,
                    c.created_at, c.updated_at,
                    COALESCE(m.msg_count, 0) AS message_count,
                    m.started_at, m.last_message_at
@@ -3968,6 +4875,11 @@ async def get_conversation_context_metadata(
         if not include_message_stats:
             row = await conn.fetchrow("""
                 SELECT c.id, c.name, c.external_session_id, c.max_messages,
+                       c.context_mode, c.context_window_messages,
+                       c.context_window_tokens,
+                       c.temporary_summary_trigger_tokens,
+                       c.temporary_summary_every_n_messages,
+                       c.temporary_summary, c.temporary_summary_through_message_id,
                        c.is_active, c.handoff_summary, c.handoff_draft,
                        c.created_at, c.updated_at,
                        NULL::BIGINT AS message_count,
@@ -3979,6 +4891,11 @@ async def get_conversation_context_metadata(
             return dict(row) if row else None
         row = await conn.fetchrow("""
             SELECT c.id, c.name, c.external_session_id, c.max_messages,
+                   c.context_mode, c.context_window_messages,
+                   c.context_window_tokens,
+                   c.temporary_summary_trigger_tokens,
+                   c.temporary_summary_every_n_messages,
+                   c.temporary_summary, c.temporary_summary_through_message_id,
                    c.is_active, c.handoff_summary, c.handoff_draft,
                    c.created_at, c.updated_at,
                    COALESCE(m.message_count, 0) AS message_count,
@@ -4044,9 +4961,25 @@ def _conversation_chunks(messages: list[dict], max_chars: int = 3200) -> list[di
     return chunks
 
 
-async def _embed_conversation_chunks(texts: list[str], settings: dict) -> list[list[float] | None]:
+def _embedding_supports_retrieval_task(settings: dict) -> bool:
+    """Return whether the configured model accepts Jina retrieval tasks."""
+    model = str(settings.get("embedding_model") or "").strip().lower()
+    return bool(re.match(r"^jina-embeddings-v(?:3|4|5)(?:$|[-_])", model))
+
+
+async def _embed_conversation_chunks(
+    texts: list[str],
+    settings: dict,
+    task: str | None = None,
+) -> list[list[float] | None]:
     if not texts:
         return []
+    payload = {
+        "model": settings.get("embedding_model") or "",
+        "input": texts,
+    }
+    if task and _embedding_supports_retrieval_task(settings):
+        payload["task"] = task
     try:
         async with httpx.AsyncClient(timeout=EMBEDDING_TIMEOUT) as client:
             response = await client.post(
@@ -4055,10 +4988,7 @@ async def _embed_conversation_chunks(texts: list[str], settings: dict) -> list[l
                     "Authorization": f"Bearer {settings.get('embedding_api_key') or ''}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": settings.get("embedding_model") or "",
-                    "input": texts,
-                },
+                json=payload,
             )
         if response.status_code != 200:
             print(f"[history] embedding failed: HTTP {response.status_code}")
@@ -4084,8 +5014,6 @@ def _long_term_embedding_text(memory: dict) -> str:
     searchable_body = str(memory.get("content") or "").strip()[
         :EMBEDDING_MAX_INPUT_CHARS
     ]
-    if long_term_memory_kind(memory) == "fragment":
-        return searchable_body
     return "\n".join(filter(None, [
         str(memory.get("title") or "").strip(),
         summary,
@@ -4101,6 +5029,10 @@ def _long_term_embedding_config_hash(settings: dict) -> str:
         ),
         "model": str(settings.get("embedding_model") or "").strip(),
     }
+    if _embedding_supports_retrieval_task(settings):
+        # Passage-task vectors occupy a different vector space from the old
+        # default-task vectors, so changing to this mode must trigger reindexing.
+        payload["task"] = "retrieval.passage"
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -4111,7 +5043,7 @@ def _long_term_embedding_config_hash(settings: dict) -> str:
 
 
 async def refresh_long_term_memory_embeddings(settings: dict) -> dict:
-    """Incrementally index fragment text and searchable diary fields."""
+    """Incrementally index searchable diary fields; fragments are retired."""
     model = str(settings.get("embedding_model") or "").strip()
     if not model:
         return {"indexed": 0, "embedded": 0}
@@ -4121,6 +5053,8 @@ async def refresh_long_term_memory_embeddings(settings: dict) -> dict:
         rows = await conn.fetch("""
             SELECT id, title, keywords, summary, content, metadata
             FROM long_term_memories
+            WHERE metadata->>'source' IS DISTINCT FROM 'raw_user_quotes'
+              AND metadata->>'entry_kind' IS DISTINCT FROM 'fragment'
             ORDER BY id ASC
         """)
         existing_rows = await conn.fetch("""
@@ -4149,7 +5083,9 @@ async def refresh_long_term_memory_embeddings(settings: dict) -> dict:
     for start in range(0, len(missing), 20):
         batch = missing[start:start + 20]
         embeddings.extend(await _embed_conversation_chunks(
-            [memory["embedding_text"] for memory in batch], settings
+            [memory["embedding_text"] for memory in batch],
+            settings,
+            task="retrieval.passage",
         ))
 
     async with pool.acquire() as conn:
@@ -4226,25 +5162,28 @@ async def search_long_term_memory_summaries(
     query: str,
     settings: dict,
     limit: int,
-    entry_kind: str | None = None,
 ) -> list[dict]:
     query = str(query or "").strip()
     limit = int(limit)
     if not query or limit <= 0:
         return []
-    schedule_long_term_memory_embedding_refresh(settings)
-    try:
-        query_vectors = await asyncio.wait_for(
-            _embed_conversation_chunks([query], settings),
-            timeout=LONG_TERM_RECALL_EMBEDDING_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        print('[long-term-memory] query embedding timed out; ' +
-              ('fragment recall skipped' if entry_kind == 'fragment' else 'using keyword recall'))
-        query_vectors = [None]
+    from conversation_search import embedding_configured
+    query_vectors = [None]
+    if embedding_configured(settings):
+        schedule_long_term_memory_embedding_refresh(settings)
+        try:
+            query_vectors = await asyncio.wait_for(
+                _embed_conversation_chunks(
+                    [query],
+                    settings,
+                    task="retrieval.query",
+                ),
+                timeout=LONG_TERM_RECALL_EMBEDDING_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            print('[long-term-memory] query embedding timed out; using keyword recall')
+            query_vectors = [None]
     query_embedding = query_vectors[0] if query_vectors else None
-    if entry_kind == 'fragment' and not query_embedding:
-        return []
     keywords = extract_search_keywords(query)
     model = str(settings.get("embedding_model") or "").strip()
     config_hash = _long_term_embedding_config_hash(settings)
@@ -4252,47 +5191,32 @@ async def search_long_term_memory_summaries(
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT m.id, m.title, m.keywords, m.summary, m.content,
-                   m.memory_date, m.metadata, m.created_at, m.enabled, e.embedding
+                   m.memory_date, m.metadata, m.created_at, m.enabled, e.embedding,
+                   e.content_hash AS embedding_content_hash
             FROM long_term_memories m
             LEFT JOIN long_term_memory_embeddings e
               ON e.memory_id = m.id
              AND e.embedding_model = $1
              AND e.embedding_config_hash = $2
+            WHERE m.metadata->>'source' IS DISTINCT FROM 'raw_user_quotes'
+              AND m.metadata->>'entry_kind' IS DISTINCT FROM 'fragment'
         """, model, config_hash)
-        related_ids = []
-        if entry_kind == 'fragment':
-            current_id = settings.get('_recall_conversation_id')
-            if current_id is None:
-                current_id = await conn.fetchval('SELECT id FROM conversations WHERE is_active = TRUE LIMIT 1')
-            if type(current_id) is int:
-                related = await conn.fetch('''
-                    WITH RECURSIVE ancestors(id, parent) AS (
-                        SELECT id, handoff_source_id FROM conversations WHERE id = $1
-                        UNION
-                        SELECT c.id, c.handoff_source_id FROM conversations c
-                        JOIN ancestors a ON c.id = a.parent
-                    ), family(id) AS (
-                        SELECT id FROM ancestors
-                        UNION
-                        SELECT c.id FROM conversations c JOIN family f ON c.handoff_source_id = f.id
-                    ) SELECT id FROM family
-                ''', current_id)
-                related_ids = [row['id'] for row in related]
 
     scored = []
     for record in rows:
         memory = dict(record)
         memory["metadata"] = _json_object(memory.get("metadata"))
-        memory["entry_kind"] = long_term_memory_kind(memory)
-        if entry_kind and memory["entry_kind"] != entry_kind:
+        if memory['metadata'].get('source') == 'raw_user_quotes':
             continue
+        memory["entry_kind"] = "diary"
         if memory.get('enabled') is False:
-            continue
-        if memory['metadata'].get('forgetting_pending'):
             continue
         memory["keywords"] = _json_list(memory.get("keywords"))
         memory["summary"] = long_term_memory_summary(memory)
         embedding = _safe_load_embedding(memory.get("embedding"))
+        expected_hash = hashlib.sha256(_long_term_embedding_text(memory).encode('utf-8')).hexdigest()
+        if memory.get('embedding_content_hash') != expected_hash:
+            embedding = None
         semantic = cosine_similarity(query_embedding, embedding) if query_embedding else 0.0
         keyword_score, hits = keyword_match_score(
             query,
@@ -4303,18 +5227,11 @@ async def search_long_term_memory_summaries(
             semantic > 0
             and semantic >= LONG_TERM_RECALL_MIN_SEMANTIC_SCORE
         )
-        if memory['entry_kind'] == 'fragment':
-            if not semantic_match or not math.isfinite(semantic):
-                continue
-            memory['score_components'] = fragment_recall_scores(memory, query, semantic, related_ids)
-            memory['score'] = memory['score_components']['total']
-        else:
-            if not semantic_match and hits <= 0:
-                continue
-            memory['score'] = semantic * 0.8 + keyword_score * 0.2
+        if not semantic_match and hits <= 0:
+            continue
+        memory['score'] = semantic * 0.8 + keyword_score * 0.2
         memory.pop("embedding", None)
-        if memory["entry_kind"] != "fragment":
-            memory.pop("content", None)
+        memory.pop("content", None)
         scored.append(memory)
     scored.sort(key=lambda item: (item["score"], int(item["id"])), reverse=True)
     return scored[:limit]
@@ -4462,71 +5379,17 @@ async def search_conversation_history(
     settings: dict,
     limit: int = 5,
 ) -> list[dict]:
-    query = str(query or "").strip()
-    if not query:
-        return []
-    await refresh_conversation_search_index(settings)
-    query_vectors = await _embed_conversation_chunks([query], settings)
-    query_embedding = query_vectors[0] if query_vectors else None
-    keywords = extract_search_keywords(query)
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT sc.*, c.name,
-                   COALESCE(MIN(m.created_at) FILTER (
-                       WHERE m.hidden = FALSE AND m.role IN ('user', 'assistant')
-                         AND (m.role = 'user' OR m.content_json IS NULL)
-                   ), c.created_at) AS started_at,
-                   COALESCE(MAX(m.created_at) FILTER (
-                       WHERE m.hidden = FALSE AND m.role IN ('user', 'assistant')
-                         AND (m.role = 'user' OR m.content_json IS NULL)
-                   ), c.created_at) AS last_message_at
-            FROM conversation_search_chunks sc
-            JOIN conversations c ON c.id = sc.conversation_id
-            LEFT JOIN context_messages m ON m.conversation_id = c.id
-            WHERE sc.embedding_model = $1 AND sc.conversation_id <> $2
-            GROUP BY sc.id, c.id
-        """, settings.get("embedding_model") or "", int(current_conversation_id))
-
-    scored = []
-    for record in rows:
-        row = dict(record)
-        embedding = _safe_load_embedding(row.get("embedding"))
-        semantic = cosine_similarity(query_embedding, embedding) if query_embedding else 0.0
-        keyword, hits = keyword_match_score(query, row.get("content") or "", keywords)
-        if semantic <= 0 and hits <= 0:
-            continue
-        row["score"] = semantic * 0.75 + keyword * 0.25
-        row["excerpt_messages"] = _history_excerpt_messages(
-            row.get("messages"), keywords
-        )
-        scored.append(row)
-    scored.sort(key=lambda item: item["score"], reverse=True)
-
-    grouped_results = []
-    by_conversation = {}
-    for row in scored:
-        conv_id = int(row["conversation_id"])
-        if conv_id not in by_conversation:
-            result = {
-                "conversation_id": conv_id,
-                "title": row.get("name") or f"会话 #{conv_id}",
-                "started_at": row.get("started_at"),
-                "last_message_at": row.get("last_message_at"),
-                "matches": [],
-            }
-            by_conversation[conv_id] = result
-            grouped_results.append(result)
-        result = by_conversation[conv_id]
-        if not result["matches"]:
-            result["matches"].append({
-                "first_message_id": int(row["first_message_id"]),
-                "last_message_id": int(row["last_message_id"]),
-                "messages": row["excerpt_messages"],
-            })
-        if len(grouped_results) >= limit:
-            break
-    return grouped_results[:limit]
+    from conversation_search import search
+    turns = await search(query, settings, current_conversation_id=current_conversation_id, limit=limit)
+    return [{
+        'conversation_id': turn['conversation_id'], 'title': f"过去对话 · 轮次 #{turn['turn_id']}",
+        'started_at': turn['messages'][0].get('created_at'),
+        'last_message_at': turn['messages'][-1].get('created_at'),
+        'matches': [{'first_message_id': turn['messages'][0]['id'],
+                     'last_message_id': turn['messages'][-1]['id'],
+                     'messages': [{'id': m['message_id'], 'role': m['role'], 'content': m['text']}
+                                  for m in sorted(turn['matches'], key=lambda m: (m['message_id'], m['start']))]}],
+    } for turn in turns]
 
 
 async def get_active_conversation() -> dict | None:
@@ -4534,6 +5397,10 @@ async def get_active_conversation() -> dict | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT id, name, max_messages, is_active, cache_anchor_fingerprint,
+                   context_mode, context_window_messages, context_window_tokens,
+                   temporary_summary_trigger_tokens,
+                   temporary_summary_every_n_messages, temporary_summary,
+                   temporary_summary_through_message_id,
                    handoff_draft, handoff_summary, handoff_source_id,
                    handoff_message_ids, handoff_summary_through_message_id,
                    handoff_summary_version, handoff_summary_ready_for_flow,
@@ -4541,6 +5408,9 @@ async def get_active_conversation() -> dict | None:
                    heartbeat_count, heartbeat_last_user_message_id,
                    heartbeat_claim_token, heartbeat_claimed_at,
                    heartbeat_last_sent_at, heartbeat_last_checked_at,
+                   last_route_provider, last_provider_profile_id,
+                   last_provider_name, last_model, last_chat_provider_snapshot,
+                   auto_inject_captured_prompts, capture_frontend_prompts,
                    created_at, updated_at
             FROM conversations
             WHERE is_active = TRUE
@@ -4658,6 +5528,7 @@ async def _store_conversation_summary_in_flow(conn, source) -> int | None:
         summary,
         json.dumps({
             "kind": "conversation_summary",
+            "author_role": "assistant",
             "source_conversation_id": source_conv_id,
             "handoff_summary_version": version,
             "through_message_id": source.get("handoff_summary_through_message_id"),
@@ -4709,7 +5580,16 @@ async def set_active_conversation(
             """, conv_id)
 
 
-async def update_conversation(conv_id: int, name: str = None, max_messages: int = None):
+async def update_conversation(
+    conv_id: int,
+    name: str = None,
+    max_messages: int = None,
+    context_mode: str = None,
+    context_window_messages: int = None,
+    context_window_tokens: int = None,
+    temporary_summary_trigger_tokens: int = None,
+    temporary_summary_every_n_messages: int = None,
+):
     pool = await get_pool()
     async with pool.acquire() as conn:
         if name is not None:
@@ -4722,6 +5602,219 @@ async def update_conversation(conv_id: int, name: str = None, max_messages: int 
                 UPDATE conversations SET max_messages = $1, updated_at = NOW()
                 WHERE id = $2
             """, max_messages, conv_id)
+        if context_mode is not None:
+            await conn.execute("""
+                UPDATE conversations SET context_mode = $1, updated_at = NOW()
+                WHERE id = $2
+            """, context_mode, conv_id)
+        if context_window_messages is not None:
+            await conn.execute("""
+                UPDATE conversations SET context_window_messages = $1, updated_at = NOW()
+                WHERE id = $2
+            """, context_window_messages, conv_id)
+        if context_window_tokens is not None:
+            await conn.execute("""
+                UPDATE conversations SET context_window_tokens = $1, updated_at = NOW()
+                WHERE id = $2
+            """, context_window_tokens, conv_id)
+        if temporary_summary_trigger_tokens is not None:
+            await conn.execute("""
+                UPDATE conversations
+                SET temporary_summary_trigger_tokens = $1, updated_at = NOW()
+                WHERE id = $2
+            """, temporary_summary_trigger_tokens, conv_id)
+        if temporary_summary_every_n_messages is not None:
+            await conn.execute("""
+                UPDATE conversations
+                SET temporary_summary_every_n_messages = $1,
+                    temporary_summary = CASE WHEN $1 = 0 THEN '' ELSE temporary_summary END,
+                    temporary_summary_through_message_id = CASE
+                        WHEN $1 = 0 THEN NULL ELSE temporary_summary_through_message_id END,
+                    temporary_summary_claim_token = CASE
+                        WHEN $1 = 0 THEN NULL ELSE temporary_summary_claim_token END,
+                    temporary_summary_claimed_at = CASE
+                        WHEN $1 = 0 THEN NULL ELSE temporary_summary_claimed_at END,
+                    updated_at = NOW()
+                WHERE id = $2
+            """, temporary_summary_every_n_messages, conv_id)
+def _rolling_context_token_estimate(row: dict) -> int:
+    """Conservatively estimate one stored chat message without splitting it."""
+    content = row.get("content_json")
+    if content is None:
+        content = row.get("content") or ""
+    rendered = json.dumps(content, ensure_ascii=False, separators=(",", ":"), default=str)
+    ascii_chars = sum(1 for char in rendered if ord(char) < 128)
+    non_ascii_chars = len(rendered) - ascii_chars
+    return max(1, 6 + (ascii_chars + 3) // 4 + non_ascii_chars)
+
+
+def rolling_context_partition(rows: list, waterline: int) -> tuple[list, list]:
+    """Split stored rows into rolled-out and active complete exchanges."""
+    copied = list(rows or [])
+    if not copied:
+        return [], []
+    token_costs = [_rolling_context_token_estimate(dict(row)) for row in copied]
+    remaining_tokens = sum(token_costs)
+    if remaining_tokens <= int(waterline):
+        return [], copied
+
+    # Cut only after a complete assistant reply and preserve the newest exchange,
+    # even when that single exchange is larger than the configured window.
+    complete_boundaries = [
+        index for index, row in enumerate(copied)
+        if row["role"] == "assistant" and row.get("content_json") is None
+    ]
+    eligible_boundaries = set(complete_boundaries[:-1])
+    for index, cost in enumerate(token_costs):
+        remaining_tokens -= cost
+        if index in eligible_boundaries and remaining_tokens <= int(waterline):
+            return copied[:index + 1], copied[index + 1:]
+    if eligible_boundaries:
+        index = max(eligible_boundaries)
+        return copied[:index + 1], copied[index + 1:]
+    return [], copied
+
+
+async def claim_temporary_summary_batch(conv_id: int) -> dict | None:
+    """Claim rolled-out exchanges after their pending token threshold is met."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            conversation = await conn.fetchrow("""
+                SELECT id, context_mode, context_window_tokens,
+                       temporary_summary_trigger_tokens,
+                       temporary_summary, temporary_summary_through_message_id,
+                       temporary_summary_claim_token, temporary_summary_claimed_at
+                FROM conversations WHERE id = $1 FOR UPDATE
+            """, int(conv_id))
+            if (
+                not conversation
+                or conversation["context_mode"] != "window"
+                or (
+                    conversation["temporary_summary_claim_token"]
+                    and conversation["temporary_summary_claimed_at"] is not None
+                    and conversation["temporary_summary_claimed_at"]
+                        > datetime.now(timezone.utc) - timedelta(minutes=15)
+                )
+            ):
+                return None
+            rows = await conn.fetch("""
+                SELECT id, role, content, content_json, kind, hidden,
+                       affects_activity, created_at
+                FROM context_messages
+                WHERE conversation_id = $1
+                  AND id > COALESCE($2, 0)
+                  AND hidden = FALSE
+                  AND role IN ('user', 'assistant', 'tool')
+                ORDER BY id ASC
+            """, int(conv_id), conversation["temporary_summary_through_message_id"])
+            all_rows = list(rows)
+            waterline = max(
+                CONTEXT_WINDOW_MIN_TOKENS,
+                int(conversation["context_window_tokens"] or 32000),
+            )
+            rolled_rows, _ = rolling_context_partition(all_rows, waterline)
+            rolled_token_costs = [
+                _rolling_context_token_estimate(dict(row)) for row in rolled_rows
+            ]
+            summary_trigger_tokens = max(
+                CONTEXT_WINDOW_MIN_TOKENS,
+                int(
+                    conversation.get("temporary_summary_trigger_tokens")
+                    or CONTEXT_SUMMARY_TRIGGER_DEFAULT_TOKENS
+                ),
+            )
+            if sum(rolled_token_costs) < summary_trigger_tokens:
+                return None
+
+            # Summarize one threshold-sized prefix at a complete reply boundary.
+            complete_boundaries = [
+                index for index, row in enumerate(rolled_rows)
+                if row["role"] == "assistant" and row.get("content_json") is None
+            ]
+            if not complete_boundaries:
+                return None
+            accumulated = 0
+            cut_index = None
+            boundary_set = set(complete_boundaries)
+            for index, cost in enumerate(rolled_token_costs):
+                accumulated += cost
+                if (
+                    index in boundary_set
+                    and accumulated >= summary_trigger_tokens
+                ):
+                    cut_index = index
+                    break
+            if cut_index is None:
+                cut_index = complete_boundaries[-1]
+            rolling_rows = rolled_rows[:cut_index + 1]
+            token = uuid.uuid4().hex
+            through_id = int(rolling_rows[-1]["id"])
+            await conn.execute("""
+                UPDATE conversations
+                SET temporary_summary_claim_token = $2,
+                    temporary_summary_claimed_at = NOW()
+                WHERE id = $1
+            """, int(conv_id), token)
+            return {
+                "token": token,
+                "through_id": through_id,
+                "source_tokens": sum(rolled_token_costs[:cut_index + 1]),
+                "current_summary": str(conversation["temporary_summary"] or ""),
+                "messages": [dict(row) for row in all_rows],
+                "rolling_messages": [dict(row) for row in rolling_rows],
+            }
+
+
+async def finish_temporary_summary(
+    conv_id: int,
+    token: str,
+    summary: str | None,
+    through_id: int | None = None,
+) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if summary is None:
+            result = await conn.execute("""
+                UPDATE conversations
+                SET temporary_summary_claim_token = NULL,
+                    temporary_summary_claimed_at = NULL
+                WHERE id = $1 AND temporary_summary_claim_token = $2
+            """, int(conv_id), token)
+        else:
+            result = await conn.execute("""
+                UPDATE conversations
+                SET temporary_summary = $3,
+                    temporary_summary_through_message_id = $4,
+                    temporary_summary_claim_token = NULL,
+                    temporary_summary_claimed_at = NULL
+                WHERE id = $1 AND temporary_summary_claim_token = $2
+            """, int(conv_id), token, summary.strip(), int(through_id))
+        return result != "UPDATE 0"
+
+
+async def set_conversation_temporary_summary(
+    conv_id: int,
+    summary: str,
+) -> dict | None:
+    """Manually edit the rolling summary and invalidate any in-flight refresh."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            UPDATE conversations
+            SET temporary_summary = $2,
+                temporary_summary_through_message_id = CASE
+                    WHEN $2 = '' THEN NULL
+                    ELSE temporary_summary_through_message_id
+                END,
+                temporary_summary_claim_token = NULL,
+                temporary_summary_claimed_at = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, temporary_summary,
+                      temporary_summary_through_message_id
+        """, int(conv_id), str(summary or "").strip())
+        return dict(row) if row else None
 
 
 async def set_conversation_handoff_draft(conv_id: int, summary: str) -> None:
@@ -4798,7 +5891,6 @@ async def create_conversation_from_messages(
     message_ids: list[int],
     store_summary_in_flow: bool = True,
     require_active_source: bool = False,
-    extract_memories: bool = False,
 ) -> dict:
     """Create and activate a handoff conversation, optionally copying messages."""
     unique_ids = list(dict.fromkeys(int(mid) for mid in message_ids))
@@ -4809,6 +5901,10 @@ async def create_conversation_from_messages(
             await conn.execute("SELECT pg_advisory_xact_lock($1)", CONVERSATION_SWITCH_LOCK)
             source = await conn.fetchrow("""
                 SELECT id, name, max_messages, is_active, handoff_draft,
+                       context_mode, context_window_messages, context_window_tokens,
+                       temporary_summary_trigger_tokens,
+                       temporary_summary_every_n_messages,
+                       capture_frontend_prompts, auto_inject_captured_prompts,
                        handoff_summary_version,
                        handoff_summary_through_message_id,
                        handoff_summary_ready_for_flow
@@ -4841,14 +5937,28 @@ async def create_conversation_from_messages(
 
             target = await conn.fetchrow("""
                 INSERT INTO conversations
-                    (name, max_messages, handoff_source_id)
-                VALUES ($1, $2, $3)
+                    (name, max_messages, handoff_source_id, context_mode,
+                     context_window_messages, context_window_tokens,
+                     temporary_summary_trigger_tokens,
+                     temporary_summary_every_n_messages,
+                     capture_frontend_prompts, auto_inject_captured_prompts)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 RETURNING id, name, max_messages, handoff_summary,
-                          handoff_source_id, created_at, updated_at
-            """, name, source["max_messages"], source_conv_id)
+                          handoff_source_id, context_mode, context_window_messages,
+                          context_window_tokens,
+                          temporary_summary_trigger_tokens,
+                          temporary_summary_every_n_messages, created_at, updated_at
+            """, name, source["max_messages"], source_conv_id,
+                source.get("context_mode") or "full",
+                int(source.get("context_window_messages") or 50),
+                int(source.get("context_window_tokens") or 32000),
+                int(source.get("temporary_summary_trigger_tokens") or 8000),
+                int(source.get("temporary_summary_every_n_messages") or 0),
+                bool(source.get("capture_frontend_prompts", True)),
+                bool(source.get("auto_inject_captured_prompts", True)))
 
             for message in messages:
-                content_json = message["content_json"]
+                content_json = without_images(message["content_json"])
                 if content_json is not None and not isinstance(content_json, str):
                     content_json = json.dumps(content_json, ensure_ascii=False)
                 await conn.execute("""
@@ -4862,9 +5972,6 @@ async def create_conversation_from_messages(
                 UPDATE conversations SET is_active = TRUE, updated_at = NOW()
                 WHERE id = $1
             """, target["id"])
-            if extract_memories:
-                from memory_extraction import enqueue_extraction
-                await enqueue_extraction(conn, source_conv_id, int(target['id']))
             result = dict(target)
             result["flow_memory_id"] = flow_memory_id
             return result
@@ -4880,14 +5987,17 @@ async def delete_conversation(conv_id: int):
 
 
 async def save_context_message(
-    conversation_id: int,
-    role: str,
+    conversation_id: int, 
+    role: str, 
     content: str,
     content_json: list = None,  # 新增：结构化内容
     kind: str = "chat",
     hidden: bool = False,
     affects_activity: bool = True,
+    reasoning_content: str | None = None,
+    fragment_pending: bool = False,
 ) -> dict:
+    content_json = without_images(content_json)
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -4897,13 +6007,13 @@ async def save_context_message(
             )
             row = await conn.fetchrow("""
                 INSERT INTO context_messages
-                    (conversation_id, role, content, content_json, kind, hidden, affects_activity)
-                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+                    (conversation_id, role, content, content_json, kind, hidden, affects_activity, reasoning_content, fragment_pending)
+                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
                 RETURNING id, role, content, content_json, kind, hidden,
                           affects_activity, created_at
             """, conversation_id, role, content,
                  json.dumps(content_json) if content_json else None,
-                 kind, hidden, affects_activity)
+                 kind, hidden, affects_activity, reasoning_content, fragment_pending)
             if role == "user" and affects_activity:
                 await conn.execute("""
                     UPDATE conversations
@@ -4917,6 +6027,302 @@ async def save_context_message(
                     WHERE id = $1
                 """, conversation_id)
             return dict(row)
+
+
+async def capture_conversation_system_prompts(
+    conversation_id: int, contents: list[str],
+) -> list[dict]:
+    unique_contents = list(dict.fromkeys(
+        str(content) for content in contents if str(content).strip()
+    ))
+    if not unique_contents:
+        return []
+    pool = await get_pool()
+    captured = []
+    async with pool.acquire() as conn:
+        for content in unique_contents:
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            row = await conn.fetchrow("""
+                INSERT INTO conversation_prompt_sources
+                    (conversation_id, content, content_hash, first_seen_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (conversation_id, content_hash) DO NOTHING
+                RETURNING id, conversation_id, content, configured,
+                          initial_injected, initial_message_id, first_seen_at
+            """, conversation_id, content, content_hash)
+            newly_captured = row is not None
+            if row is None:
+                row = await conn.fetchrow("""
+                    SELECT id, conversation_id, content, configured,
+                           initial_injected, initial_message_id, first_seen_at
+                    FROM conversation_prompt_sources
+                    WHERE conversation_id = $1 AND content_hash = $2
+                """, conversation_id, content_hash)
+            if row is not None:
+                captured.append({**dict(row), "newly_captured": newly_captured})
+    return captured
+
+
+async def mark_conversation_prompt_sources_initial_injected(
+    conversation_id: int, source_ids: list[int], message_id: int | None,
+) -> list[int]:
+    ids = sorted({int(source_id) for source_id in source_ids})
+    if not ids:
+        return []
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            UPDATE conversation_prompt_sources
+            SET initial_injected = TRUE, initial_message_id = $3
+            WHERE conversation_id = $1
+              AND id = ANY($2::int[])
+              AND initial_injected = FALSE
+            RETURNING id
+        """, conversation_id, ids, message_id)
+    return [int(row["id"]) for row in rows]
+
+
+async def update_conversation_prompt_source_configured(
+    conversation_id: int, source_id: int, configured: bool,
+) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            UPDATE conversation_prompt_sources
+            SET configured = $3
+            WHERE conversation_id = $1 AND id = $2
+            RETURNING id, conversation_id, content, configured,
+                      initial_injected, initial_message_id, first_seen_at
+        """, conversation_id, source_id, configured)
+    return dict(row) if row else None
+
+
+async def get_conversation_prompt_bundle(conversation_id: int) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        sources = await conn.fetch("""
+            SELECT id, conversation_id, content, configured, initial_injected,
+                   initial_message_id, first_seen_at
+            FROM conversation_prompt_sources
+            WHERE conversation_id = $1
+            ORDER BY id
+        """, conversation_id)
+        prompts = await conn.fetch("""
+            SELECT id, conversation_id, source_id, title, content, position,
+                   locked, frequency, interval_turns, turns_since_injection,
+                   injection_count, created_at, updated_at
+            FROM conversation_extra_prompts
+            WHERE conversation_id = $1
+            ORDER BY id
+        """, conversation_id)
+        injections = await conn.fetch("""
+            SELECT i.id, i.prompt_id, i.message_id, i.position, i.created_at,
+                   COALESCE(NULLIF(i.title, ''), p.title) AS title
+            FROM conversation_extra_prompt_injections i
+            JOIN conversation_extra_prompts p ON p.id = i.prompt_id
+            WHERE i.conversation_id = $1
+            ORDER BY i.id DESC
+            LIMIT 200
+        """, conversation_id)
+        capture_enabled = await conn.fetchval(
+            "SELECT capture_frontend_prompts FROM conversations WHERE id = $1", conversation_id
+        )
+        auto_inject = await conn.fetchval("""
+            SELECT auto_inject_captured_prompts
+            FROM conversations
+            WHERE id = $1
+        """, conversation_id)
+    return {
+        "sources": [dict(row) for row in sources],
+        "prompts": [dict(row) for row in prompts],
+        "injections": [dict(row) for row in injections],
+        "auto_inject_captured_prompts": bool(auto_inject),
+        "capture_frontend_prompts": bool(capture_enabled),
+    }
+
+
+async def save_conversation_prompt_capture_settings(
+    conversation_id: int, auto_inject: bool | None = None,
+    capture_frontend_prompts: bool | None = None,
+) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            UPDATE conversations
+            SET auto_inject_captured_prompts = COALESCE($2, auto_inject_captured_prompts),
+                capture_frontend_prompts = COALESCE($3, capture_frontend_prompts)
+            WHERE id = $1
+            RETURNING id, auto_inject_captured_prompts, capture_frontend_prompts
+        """, conversation_id, auto_inject, capture_frontend_prompts)
+    return dict(row) if row else None
+
+
+async def get_unlocked_conversation_extra_prompts(conversation_id: int) -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, source_id, title, content, position, frequency, interval_turns,
+                   turns_since_injection, injection_count
+            FROM conversation_extra_prompts
+            WHERE conversation_id = $1 AND locked = FALSE
+            ORDER BY id
+        """, conversation_id)
+    return [dict(row) for row in rows]
+
+
+async def create_conversation_extra_prompt(
+    conversation_id: int, source_id: int | None, title: str, content: str,
+    position: str, locked: bool = True, frequency: str = "repeat",
+    interval_turns: int = 1,
+) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO conversation_extra_prompts
+                (conversation_id, source_id, title, content, position, locked,
+                 frequency, interval_turns)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8
+            WHERE $2::int IS NULL OR EXISTS (
+                SELECT 1 FROM conversation_prompt_sources
+                WHERE id = $2 AND conversation_id = $1
+            )
+            RETURNING *
+        """, conversation_id, source_id, title, content, position, locked,
+            frequency, interval_turns)
+    if not row:
+        raise ValueError("prompt source not found")
+    return dict(row)
+
+
+async def update_conversation_extra_prompt(
+    conversation_id: int, prompt_id: int, title: str, content: str,
+    position: str, locked: bool, frequency: str, interval_turns: int,
+) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            UPDATE conversation_extra_prompts
+            SET title = $3, content = $4, position = $5,
+                locked = $6, frequency = $7, interval_turns = $8,
+                updated_at = NOW()
+            WHERE conversation_id = $1 AND id = $2
+            RETURNING *
+        """, conversation_id, prompt_id, title, content, position, locked,
+            frequency, interval_turns)
+    return dict(row) if row else None
+
+
+async def delete_conversation_extra_prompt(conversation_id: int, prompt_id: int) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("""
+            DELETE FROM conversation_extra_prompts
+            WHERE conversation_id = $1 AND id = $2
+        """, conversation_id, prompt_id)
+    return result != "DELETE 0"
+
+
+async def get_extra_prompt_presets() -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM extra_prompt_presets ORDER BY updated_at DESC, id DESC")
+    return [dict(row) for row in rows]
+
+
+async def save_extra_prompt_preset(
+    title: str, content: str, position: str, locked: bool,
+    frequency: str, interval_turns: int, preset_id: int | None = None,
+) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if preset_id is None:
+            row = await conn.fetchrow("""
+                INSERT INTO extra_prompt_presets
+                    (title, content, position, locked, frequency, interval_turns)
+                VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+            """, title, content, position, locked, frequency, interval_turns)
+        else:
+            row = await conn.fetchrow("""
+                UPDATE extra_prompt_presets SET title=$1, content=$2, position=$3,
+                    locked=$4, frequency=$5, interval_turns=$6, updated_at=NOW()
+                WHERE id=$7 RETURNING *
+            """, title, content, position, locked, frequency, interval_turns, preset_id)
+    return dict(row) if row else None
+
+
+async def delete_extra_prompt_preset(preset_id: int) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM extra_prompt_presets WHERE id=$1", preset_id)
+    return result != "DELETE 0"
+
+
+async def apply_extra_prompt_preset(conversation_id: int, preset_id: int) -> dict:
+    """Copy a reusable preset, retaining no reference to its future edits/deletion."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            if not await conn.fetchval("SELECT id FROM conversations WHERE id=$1 FOR UPDATE", conversation_id):
+                raise ValueError("会话不存在")
+            preset = await conn.fetchrow("SELECT * FROM extra_prompt_presets WHERE id=$1 FOR SHARE", preset_id)
+            if preset is None:
+                raise ValueError("预设不存在")
+            values = [preset[key] for key in (
+                "title", "content", "position", "locked", "frequency", "interval_turns",
+            )]
+            existing = await conn.fetchrow("""
+                SELECT * FROM conversation_extra_prompts
+                WHERE conversation_id=$1 AND source_id IS NULL
+                  AND title=$2 AND content=$3 AND position=$4 AND locked=$5
+                  AND frequency=$6 AND interval_turns=$7
+                ORDER BY id LIMIT 1
+            """, conversation_id, *values)
+            if existing is not None:
+                return {"prompt": dict(existing), "created": False}
+            row = await conn.fetchrow("""
+                INSERT INTO conversation_extra_prompts
+                    (conversation_id, title, content, position, locked, frequency, interval_turns)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
+            """, conversation_id, *values)
+    return {"prompt": dict(row), "created": True}
+
+
+async def record_conversation_extra_prompt_injections(
+    conversation_id: int, active_prompts: list[dict], injected_prompts: list[dict],
+    message_id: int | None,
+) -> None:
+    if not active_prompts:
+        return
+    injected_ids = {int(prompt["id"]) for prompt in injected_prompts}
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for prompt in active_prompts:
+                prompt_id = int(prompt["id"])
+                if prompt_id not in injected_ids:
+                    if (prompt.get("frequency") == "once"
+                            and int(prompt.get("injection_count") or 0) > 0):
+                        continue
+                    await conn.execute("""
+                        UPDATE conversation_extra_prompts
+                        SET turns_since_injection = turns_since_injection + 1
+                        WHERE id = $1 AND conversation_id = $2 AND locked = FALSE
+                    """, prompt_id, conversation_id)
+                    continue
+                position = str(prompt["position"])
+                await conn.execute("""
+                    INSERT INTO conversation_extra_prompt_injections
+                        (prompt_id, conversation_id, message_id, position,
+                         title, content)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                """, prompt_id, conversation_id, message_id, position,
+                    str(prompt.get("title") or ""), str(prompt.get("content") or ""))
+                await conn.execute("""
+                    UPDATE conversation_extra_prompts
+                    SET injection_count = injection_count + 1,
+                        turns_since_injection = 0, updated_at = NOW()
+                    WHERE id = $1 AND conversation_id = $2
+                """, prompt_id, conversation_id)
 
 
 async def save_context_messages_batch(
@@ -4936,7 +6342,7 @@ async def save_context_messages_batch(
             )
             saved = []
             for message in messages:
-                content_json = message.get("content_json")
+                content_json = without_images(message.get("content_json"))
                 row = await conn.fetchrow("""
                     INSERT INTO context_messages
                         (conversation_id, role, content, content_json, kind, hidden, affects_activity)
@@ -4957,13 +6363,52 @@ async def save_context_messages_batch(
             return saved
 
 
+async def _attach_context_prompt_injections(
+    conn, conversation_id: int, rows: list[dict],
+    include_content: bool = True,
+) -> list[dict]:
+    message_ids = [int(row["id"]) for row in rows if row.get("id") is not None]
+    if not message_ids:
+        return rows
+    prompt_content = "COALESCE(i.content, p.content, '')" if include_content else "NULL::TEXT"
+    source_content = "s.content" if include_content else "NULL::TEXT"
+    annotations = await conn.fetch(f"""
+        SELECT i.message_id, i.position, 'prompt'::text AS kind,
+               i.prompt_id AS reference_id, p.source_id,
+               COALESCE(NULLIF(i.title, ''), NULLIF(p.title, ''),
+                        '提示词 #' || i.prompt_id::text) AS title,
+               {prompt_content} AS content
+        FROM conversation_extra_prompt_injections i
+        LEFT JOIN conversation_extra_prompts p ON p.id = i.prompt_id
+        WHERE i.conversation_id = $1
+          AND i.message_id = ANY($2::int[])
+        UNION ALL
+        SELECT s.initial_message_id AS message_id, 'before'::text AS position,
+               'source'::text AS kind, s.id AS reference_id, s.id AS source_id,
+               '前端捕获 #' || s.id::text AS title, {source_content} AS content
+        FROM conversation_prompt_sources s
+        WHERE s.conversation_id = $1
+          AND s.initial_injected = TRUE
+          AND s.initial_message_id = ANY($2::int[])
+        ORDER BY message_id, kind DESC, reference_id
+    """, conversation_id, message_ids)
+    by_message: dict[int, list[dict]] = {}
+    for annotation in annotations:
+        item = dict(annotation)
+        by_message.setdefault(int(item.pop("message_id")), []).append(item)
+    return [
+        {**row, "prompt_injections": by_message.get(int(row["id"]), [])}
+        for row in rows
+    ]
+
+
 async def get_context_messages(conversation_id: int, limit: int = None) -> list:
     pool = await get_pool()
     async with pool.acquire() as conn:
         if limit:
             rows = await conn.fetch("""
                 SELECT * FROM (
-                    SELECT id, conversation_id, role, content, content_json,
+                    SELECT id, conversation_id, role, content, content_json, reasoning_content,
                            kind, hidden, affects_activity, created_at
                     FROM context_messages
                     WHERE conversation_id = $1
@@ -4974,13 +6419,15 @@ async def get_context_messages(conversation_id: int, limit: int = None) -> list:
             """, conversation_id, limit)
         else:
             rows = await conn.fetch("""
-                SELECT id, conversation_id, role, content, content_json,
+                SELECT id, conversation_id, role, content, content_json, reasoning_content,
                        kind, hidden, affects_activity, created_at
                 FROM context_messages
                 WHERE conversation_id = $1
                 ORDER BY id ASC
             """, conversation_id)
-        return [dict(r) for r in rows]
+        return await _attach_context_prompt_injections(
+            conn, conversation_id, [dict(r) for r in rows]
+        )
 
 
 async def get_context_message_page(
@@ -4994,7 +6441,7 @@ async def get_context_message_page(
         if before_id is None:
             rows = await conn.fetch("""
                 SELECT * FROM (
-                    SELECT id, conversation_id, role, content,
+                    SELECT id, conversation_id, role, content, reasoning_content,
                            NULL::JSONB AS content_json,
                            (content_json IS NOT NULL) AS has_content_json,
                            kind, hidden, affects_activity, created_at
@@ -5011,7 +6458,7 @@ async def get_context_message_page(
         else:
             rows = await conn.fetch("""
                 SELECT * FROM (
-                    SELECT id, conversation_id, role, content,
+                    SELECT id, conversation_id, role, content, reasoning_content,
                            NULL::JSONB AS content_json,
                            (content_json IS NOT NULL) AS has_content_json,
                            kind, hidden, affects_activity, created_at
@@ -5025,7 +6472,9 @@ async def get_context_message_page(
                 ) page
                 ORDER BY id ASC
             """, int(conversation_id), int(before_id), int(limit))
-        return [dict(row) for row in rows]
+        return await _attach_context_prompt_injections(
+            conn, conversation_id, [dict(row) for row in rows], include_content=False
+        )
 
 
 async def set_conversation_cache_anchor(conversation_id: int, fingerprint: str | None):
@@ -5155,6 +6604,7 @@ async def finish_heartbeat_silently(
     expected_last_user_id: int,
     expected_last_message_id: int,
     materialize_activities: bool = False,
+    cache_anchor_fingerprint: str | None = None,
 ) -> bool:
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -5183,9 +6633,10 @@ async def finish_heartbeat_silently(
             await conn.execute("""
                 UPDATE conversations
                 SET heartbeat_last_checked_at = NOW(), updated_at = NOW(),
-                    heartbeat_claim_token = NULL, heartbeat_claimed_at = NULL
+                    heartbeat_claim_token = NULL, heartbeat_claimed_at = NULL,
+                    cache_anchor_fingerprint = COALESCE($3, cache_anchor_fingerprint)
                 WHERE id = $1 AND heartbeat_claim_token = $2
-            """, conversation_id, claim_token)
+            """, conversation_id, claim_token, cache_anchor_fingerprint)
             return True
 
 
@@ -5210,7 +6661,11 @@ async def clear_context(conversation_id: int) -> int:
             SET cache_anchor_fingerprint = NULL, heartbeat_count = 0,
                 heartbeat_last_user_message_id = NULL,
                 heartbeat_claim_token = NULL, heartbeat_claimed_at = NULL,
-                heartbeat_last_sent_at = NULL, heartbeat_last_checked_at = NULL
+                heartbeat_last_sent_at = NULL, heartbeat_last_checked_at = NULL,
+                temporary_summary = '',
+                temporary_summary_through_message_id = NULL,
+                temporary_summary_claim_token = NULL,
+                temporary_summary_claimed_at = NULL
             WHERE id = $1
         """, conversation_id)
         try:
@@ -5227,7 +6682,12 @@ async def delete_context_message(msg_id: int):
         )
         if conversation_id:
             await conn.execute("""
-                UPDATE conversations SET cache_anchor_fingerprint = NULL
+                UPDATE conversations
+                SET cache_anchor_fingerprint = NULL,
+                    temporary_summary = '',
+                    temporary_summary_through_message_id = NULL,
+                    temporary_summary_claim_token = NULL,
+                    temporary_summary_claimed_at = NULL
                 WHERE id = $1
             """, conversation_id)
 
@@ -5242,7 +6702,12 @@ async def update_context_message(msg_id: int, content: str):
         """, content, msg_id)
         if conversation_id:
             await conn.execute("""
-                UPDATE conversations SET cache_anchor_fingerprint = NULL
+                UPDATE conversations
+                SET cache_anchor_fingerprint = NULL,
+                    temporary_summary = '',
+                    temporary_summary_through_message_id = NULL,
+                    temporary_summary_claim_token = NULL,
+                    temporary_summary_claimed_at = NULL
                 WHERE id = $1
             """, conversation_id)
 
@@ -5360,12 +6825,15 @@ async def get_pinned_memories() -> list:
         """)
         return [dict(r) for r in rows]
 
-async def update_memory_pin(memory_id: int, pinned: bool):
+async def update_memory_pin(memory_id: int, pinned: bool, original_content=None, original_tags=None):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE memories SET pinned = $1 WHERE id = $2",
-            pinned, memory_id,
+        return await conn.fetchval(
+            """UPDATE memories SET pinned=$1 WHERE id=$2
+               AND (metadata->>'kind' IS DISTINCT FROM 'ash_fragment' OR NOT metadata ? 'merged_into')
+               AND ($3::text IS NULL OR content=$3) AND ($4::text[] IS NULL OR tags=$4)
+               RETURNING id""",
+            pinned, memory_id, original_content, original_tags,
         )
 # ============================================================
 # Prompt 段落表

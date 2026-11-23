@@ -1,0 +1,17 @@
+/* Name presets and the embedded prompt list share the phone's neutral surfaces. */
+#section-presets { color:var(--phone-ink); }
+.identity-group-title { margin:0 0 12px; color:var(--phone-muted); font-size:14px; line-height:1.5; font-weight:500; }
+.identity-load-status, .identity-avatar-msg { color:var(--phone-muted); font-size:14px; }
+.identity-load-status:empty, .identity-avatar-msg:empty { display:none; }
+.identity-preset-grid { overflow:hidden; border:1px solid var(--phone-line); border-radius:16px; background:var(--phone-card); }
+#section-presets .heartbeat-setting-field { display:flex; align-items:center; min-width:0; min-height:64px; gap:14px; padding:12px 16px; }
+#section-presets .heartbeat-setting-field + .heartbeat-setting-field { border-top:1px solid var(--phone-line); }
+#section-presets .heartbeat-setting-field > span { flex:none; width:72px; margin:0; color:var(--phone-muted); font-size:15px; white-space:nowrap; }
+#section-presets .control-input { flex:1; min-width:0; width:0; min-height:40px; padding:4px 0; border:0; border-radius:0; background:transparent; color:var(--phone-ink); font:17px/1.5 var(--font-ui); }
+#section-presets .control-input::placeholder { color:var(--phone-muted); }
+#section-presets .heartbeat-settings-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:12px 0 24px; padding:0; border:0; }
+#identity-presets-msg { min-width:0; color:var(--phone-muted); font-size:14px; overflow-wrap:anywhere; }
+#section-presets .heartbeat-settings-actions button { flex-shrink:0; margin-left:auto; min-height:44px; }
+.identity-prompt-sheet { min-width:0; }
+.prompt-console-frame-shell { min-width:0; border:0; background:transparent; }
+.prompt-console-frame { display:block; width:100%; height:240px; border:0; background:transparent; }

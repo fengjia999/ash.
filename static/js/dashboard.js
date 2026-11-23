@@ -52,7 +52,7 @@ async function saveDashboardJson(url, options) {
         return data;
     } catch (error) {
         if (controller.signal.aborted) {
-            throw new Error("等待超过 30 秒，保存结果尚未确认，请刷新核对后再操作");
+            throw new Error("等待超过 30 秒，操作结果尚未确认，请刷新核对后再操作");
         }
         throw error;
     } finally {
@@ -67,82 +67,65 @@ function byId(id) {
 // ============================================
 // 全局状态
 // ============================================
-let allMemories = [];
 let pendingJsonData = null;
+let jsonImportInProgress = false;
 let standingBlocks = [];
+const standingMutationIds = new Set();
 let standingLoadGeneration = 0;
-let longTermLoadGeneration = 0;
+let diariesLoadGeneration = 0;
 let standingOverview = {content: "", block_count: 0, character_count: 0};
-let promptSplicePreview = null;
 let standingEditingId = null;
 const promotingFlowMemoryIds = new Set();
-let memoryFragments = [];
 let longTermMemories = [];
 let longTermPending = [];
+let diariesLoaded = false;
+let diariesDirty = false;
+let diariesLoadPromise = null;
+let diaryPendingLoaded = false;
+let diaryPendingDirty = false;
+let diaryPendingLoadPromise = null;
 let longTermEditingId = null;
 let longTermSelectionMode = false;
 let longTermBatchDeleting = false;
+let longTermKeywordsGenerating = false;
+let longTermKeywordsProgress = "";
 const longTermSelectedIds = new Set();
 let ltmSummaryDraft = "";
 let longTermSummaryTarget = null;
-const SUPPORTED_BACKUP_SCHEMA_VERSIONS = [2, 3, 4, 5, 6, 7, 8, 9];
+let longTermSummaryGeneration = 0;
+const SUPPORTED_BACKUP_SCHEMA_VERSIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 let clearStoredOcrApiKey = false;
 let openAiProviderProfiles = [];
-const conversationFrameTimers = {list: null, detail: null};
+let anthropicProviderProfiles = [];
+const conversationFrameTimers = {detail: null};
 let conversationActivationQueue = Promise.resolve();
 let conversationActivationGeneration = 0;
 const CONVERSATION_FRAME_TIMEOUT_MS = 15000;
 
 // ============================================
-// 类型配置
-// ============================================
-const TYPE_CONFIG = {
-    factual: { icon: '🌟', label: 'factual - 事实/偏好/习惯', color: '#3B82F6' },
-    episodic: { icon: '📖', label: 'episodic - 重要事件', color: '#8B5CF6' },
-    diary: { icon: '💭', label: 'diary - 我的日记', color: '#EC4899' },
-    quote: { icon: '💬', label: 'quote - 对话原话', color: '#F59E0B' },
-    temp: { icon: '⏰', label: 'temp - 临时备忘', color: '#6B7280' },
-};
-
-// ============================================
 // 初始化
 // ============================================
 document.addEventListener("DOMContentLoaded", () => {
-    initNavigation();
     initTabs();
     initMemoryEditor();
     initLongTermMemoryEditor();
     initConversationFrames();
-    loadConversationListFrame();
     const section = window.location.hash.slice(1);
-    switchSection(section && document.getElementById("section-" + section) ? section : "conversations");
+    switchSection(section === "prompts" || (section && document.getElementById("section-" + section)) ? section : (document.body.classList.contains('phone-dashboard') ? 'home' : 'conversations'));
 });
 
 // ============================================
-// 侧边栏导航
+// 应用导航
 // ============================================
-function initNavigation() {
-    const navItems = document.querySelectorAll(".nav-item[data-section]");
-
-    navItems.forEach(item => {
-        item.addEventListener("click", (e) => {
-            e.preventDefault();
-            const section = item.dataset.section;
-            switchSection(section);
-        });
-    });
-}
-
-function switchSection(name) {
-    document.body?.classList.remove("history-open");
-    document.querySelectorAll(".nav-item[data-section]").forEach(item => {
-        const active = item.dataset.section === name;
-        item.classList.toggle("active", active);
-        if (active) item.setAttribute("aria-current", "page");
-        else item.removeAttribute("aria-current");
-    });
-    document.querySelector(".mobile-history-toggle")?.setAttribute?.("aria-expanded", "false");
-
+function switchSection(name, options = {}) {
+    if (name === "conversations") name = "chat";
+    if (name === "prompts") name = "presets";
+    if (name === "quotes") { switchSection("chat", options); openUsageBoard(); return; }
+    if (!options.renderOnly && document.body?.classList?.contains("phone-dashboard") && window.AshPhone) {
+        window.AshPhone.navigate(name);
+        return;
+    }
+    if (typeof closeUsageBoard === "function") closeUsageBoard(false);
     document.querySelectorAll(".section").forEach(section => {
         section.classList.toggle("active", section.id === "section-" + name);
     });
@@ -150,14 +133,14 @@ function switchSection(name) {
     if (name === "export") {
         loadExportStats();
     }
-    if (name === "manage") {
-        loadMemories();
-    }
     if (name === "standing") {
+        window.AshArchive?.enter();
+        loadFragmentPage();
         loadStandingMemory();
         const view = document.querySelector("[data-standing-view].active")?.dataset.standingView;
-        if (["fragments", "long-term"].includes(view)) loadLongTermMemory();
+        if (view === "long-term") loadLongTermMemory();
     }
+    if (name === "diary") loadDiaryNotebook();
     if (name === "quotes") {
         loadTokenUsage();
     }
@@ -165,19 +148,18 @@ function switchSection(name) {
         loadHeartbeatSettings();
         loadHeartbeatActivities();
     }
-    if (name === "settings") {
-        loadAnthropicCredential();
-        loadRouteSettings();
-        loadOpenAiProviders();
-        loadConversationModelSettings();
-        loadOcrSettings();
-    }
-    if (name === "prompts") {
+    if (name === "presets") {
+        loadIdentityPresets();
         loadPromptConsoleFrame();
     }
-    if (name === "conversations") {
-        loadConversationListFrame();
+    if (["suppliers", "supplier-route"].includes(name)) loadRouteSettings(name === "supplier-route");
+    if (["suppliers", "supplier-openai", "supplier-anthropic", "settings"].includes(name)) {
+        loadAnthropicProviders();
+        loadOpenAiProviders();
     }
+    if (["settings", "recall"].includes(name)) loadConversationModelSettings(name === "recall" ? "recall" : "generation");
+    if (name === "settings") { loadOcrSettings(); loadMcpSettings(); }
+    window.AshPhone?.presentSection(name);
 }
 
 function loadPromptConsoleFrame() {
@@ -187,25 +169,21 @@ function loadPromptConsoleFrame() {
     }
 }
 
-function toggleHistorySidebar() {
-    const open = document.body.classList.toggle("history-open");
-    document.querySelector(".mobile-history-toggle")?.setAttribute("aria-expanded", String(open));
-}
 
 function switchTo(section) {
     switchSection(section);
 }
 
-function loadConversationListFrame() {
-    const frame = byId("conversation-list-frame");
-    if (frame && !frame.getAttribute("src")) {
-        setConversationFrameStatus("list", "loading", "正在加载会话…");
-        frame.src = "/context?embedded=list";
-    }
-}
+window.addEventListener("message", event => {
+    const frame = byId("prompt-console-frame");
+    if (event.origin !== window.location.origin || event.source !== frame?.contentWindow) return;
+    if (event.data?.type !== "memory-gateway-prompt-height") return;
+    const height = Number(event.data.height);
+    if (Number.isFinite(height) && height > 0) frame.style.height = Math.min(50000, Math.max(240, Math.ceil(height))) + "px";
+});
 
 function initConversationFrames() {
-    ["list", "detail"].forEach(mode => {
+    ["detail"].forEach(mode => {
         const frame = byId(`conversation-${mode}-frame`);
         frame?.addEventListener("load", () => {
             try {
@@ -224,6 +202,7 @@ function setConversationFrameStatus(mode, state, message = "") {
     const text = byId(`conversation-${mode}-status-text`);
     const retry = byId(`conversation-${mode}-retry`);
     if (!status || !text || !retry) return;
+    status.dataset.state = state;
     if (conversationFrameTimers[mode]) {
         clearTimeout(conversationFrameTimers[mode]);
         conversationFrameTimers[mode] = null;
@@ -233,29 +212,22 @@ function setConversationFrameStatus(mode, state, message = "") {
         return;
     }
     status.hidden = false;
-    retry.hidden = state !== "error";
+    retry.hidden = state !== "error" && state !== "slow";
     text.textContent = message || (state === "error" ? "加载失败" : "正在加载…");
     if (state === "loading") {
         conversationFrameTimers[mode] = setTimeout(() => {
-            setConversationFrameStatus(mode, "error", "加载时间过长，可以重试");
+            setConversationFrameStatus(mode, "slow", "加载较慢，仍在等待；可继续等待或重试");
         }, CONVERSATION_FRAME_TIMEOUT_MS);
     }
 }
 
 function retryConversationFrame(mode) {
-    if (mode === "list") {
-        const frame = byId("conversation-list-frame");
-        if (!frame) return;
-        setConversationFrameStatus("list", "loading", "正在重新加载会话…");
-        frame.src = "/context?embedded=list";
-        return;
-    }
     if (mode === "detail") {
         const frame = byId("conversation-detail-frame");
         const src = frame?.dataset.contextSrc;
         if (!frame || !src) return;
         setConversationFrameStatus("detail", "loading", "正在重新加载消息…");
-        frame.src = src;
+        frame.contentWindow.location.replace(src);
     }
 }
 
@@ -277,38 +249,44 @@ function requestConversationActivation(conversationId) {
         const response = await authFetch(`/api/conversations/${id}/activate`, {method: "POST"});
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || "切换会话失败");
+        return true;
     }).catch(error => {
         console.error("激活会话失败：", error);
         if (generation === conversationActivationGeneration) {
             alert("切换会话失败：" + error.message + "，请重新选择会话");
         }
+        return false;
     });
     return conversationActivationQueue;
 }
 
-function openConversationDetail(conversationId, created = false) {
+function openConversationDetail(conversationId, created = false, options = {}) {
     const id = Number(conversationId);
     if (!Number.isInteger(id) || id <= 0) return;
     const layer = byId("conversation-detail-layer");
     const frame = byId("conversation-detail-frame");
     if (!layer || !frame) return;
     if (frame.contentWindow?.isChatBusy?.()) { alert("请等待回复完成，或先停止接收，再切换会话"); return; }
+    if (!options.renderOnly && window.AshPhone) {
+        window.AshPhone.navigateConversation(id, created);
+        return;
+    }
     document.querySelectorAll(".section").forEach(section => section.classList.toggle("active", section.id === "section-conversations"));
-    document.querySelectorAll(".nav-item[data-section]").forEach(item => item.classList.toggle("active", item.dataset.section === "conversations"));
-    document.body.classList.remove("history-open");
-    document.querySelector(".mobile-history-toggle")?.setAttribute("aria-expanded", "false");
     const params = new URLSearchParams({
         embedded: "detail",
         conversation_id: String(id),
     });
     if (created) params.set("created", "1");
     const src = "/context?" + params.toString();
-    frame.dataset.contextSrc = src;
-    frame.dataset.conversationId = String(id);
-    setConversationFrameStatus("detail", "loading", "正在加载消息…");
-    frame.src = src;
+    if (!frame.dataset.contextSrc || frame.dataset.conversationId !== String(id)) {
+        frame.dataset.contextSrc = src;
+        frame.dataset.conversationId = String(id);
+        setConversationFrameStatus("detail", "loading", "正在加载消息…");
+        frame.contentWindow.location.replace(src);
+    }
     layer.classList.add("open");
     layer.setAttribute("aria-hidden", "false");
+    window.AshPhone?.presentConversation();
 }
 
 function closeConversationDetail() {
@@ -316,38 +294,20 @@ function closeConversationDetail() {
     const frame = byId("conversation-detail-frame");
     if (frame?.contentWindow?.isChatBusy?.()) return;
     if (!layer || !layer.classList.contains("open")) return;
-    layer.classList.remove("open");
-    layer.setAttribute("aria-hidden", "true");
-    document.body.classList.remove("conversation-detail-open");
-    if (frame) {
-        frame.removeAttribute("src");
-        delete frame.dataset.contextSrc;
-        delete frame.dataset.conversationId;
-    }
-    if (conversationFrameTimers.detail) {
-        clearTimeout(conversationFrameTimers.detail);
-        conversationFrameTimers.detail = null;
-    }
-    const listFrame = byId("conversation-list-frame");
-    conversationActivationQueue.then(() => {
-        listFrame?.contentWindow?.postMessage(
-            {type: "memory-gateway-refresh-conversations"},
-            window.location.origin,
-        );
-    });
+    frame?.contentWindow?.AshChatUI?.saveDraft();
+    window.AshPhone?.back();
 }
 
 window.addEventListener("message", event => {
     if (event.origin !== window.location.origin || !event.data) return;
-    if (event.data.type === "memory-gateway-chat-updated") {
-        byId("conversation-list-frame")?.contentWindow?.postMessage({type: "memory-gateway-refresh-conversations"}, window.location.origin);
-    } else if (event.data.type === "memory-gateway-open-conversation") {
+    if (event.source !== byId("conversation-detail-frame")?.contentWindow) return;
+    if (event.data.type === "memory-gateway-open-conversation") {
         openConversationDetail(event.data.conversationId, Boolean(event.data.created));
     } else if (event.data.type === "memory-gateway-close-conversation") {
         closeConversationDetail();
     } else if (event.data.type === "memory-gateway-context-status") {
         const mode = event.data.mode;
-        if (mode !== "list" && mode !== "detail") return;
+        if (mode !== "detail") return;
         if (mode === "detail") {
             const expected = Number(byId("conversation-detail-frame")?.dataset.conversationId || 0);
             const received = Number(event.data.conversationId || 0);
@@ -358,7 +318,7 @@ window.addEventListener("message", event => {
 });
 
 document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && byId("conversation-detail-layer")?.classList.contains("open")) {
+    if (event.key === "Escape" && byId("section-conversations")?.classList.contains("active") && byId("conversation-detail-layer")?.classList.contains("open")) {
         closeConversationDetail();
     }
 });
@@ -392,116 +352,6 @@ function initTabs() {
             if (label && input.files?.[0]) label.textContent = input.files[0].name;
         });
     });
-}
-
-// ============================================
-// 旧记忆碎片录（只读）
-// ============================================
-function setFragmentLedgerVisibility(hasFragments) {
-    const nav = document.querySelector('.nav-item[data-section="manage"]');
-    const section = byId("section-manage");
-    if (nav) nav.hidden = !hasFragments;
-    if (section) section.hidden = !hasFragments;
-    if (!hasFragments && section?.classList.contains("active")) {
-        switchSection("standing");
-    }
-}
-
-function fragmentDateParts(value) {
-    const formatted = fmtTime(value);
-    if (!formatted || formatted === "-") {
-        return {month: "unknown", day: "—", clock: ""};
-    }
-    return {
-        month: formatted.slice(0, 7),
-        day: formatted.slice(8, 10),
-        clock: formatted.slice(11, 16),
-    };
-}
-
-function fragmentMonthLabel(month) {
-    if (month === "unknown") return "未注明日期";
-    const [year, number] = month.split("-");
-    return `${year}年${Number(number)}月`;
-}
-
-function fragmentTypeLabel(type) {
-    const config = TYPE_CONFIG[type] || {icon: "✦", label: type || "碎片"};
-    const parts = String(config.label || "").split(" - ");
-    return {icon: config.icon || "✦", label: parts[1] || parts[0] || "碎片"};
-}
-
-function renderFragmentLedger(memories) {
-    const container = byId("memorySections");
-    if (!container) return;
-
-    const sorted = Array.from(memories).sort((a, b) => {
-        const aTime = new Date(a.created_at || 0).getTime() || 0;
-        const bTime = new Date(b.created_at || 0).getTime() || 0;
-        return bTime - aTime || (Number(b.id) || 0) - (Number(a.id) || 0);
-    });
-    const grouped = new Map();
-    sorted.forEach(memory => {
-        const date = fragmentDateParts(memory.created_at);
-        if (!grouped.has(date.month)) grouped.set(date.month, []);
-        grouped.get(date.month).push({memory, date});
-    });
-
-    container.innerHTML = Array.from(grouped.entries()).map(([month, entries]) => `
-        <section class="fragment-month">
-            <div class="fragment-month-heading">
-                <span>${escHtml(fragmentMonthLabel(month))}</span>
-                <i></i>
-            </div>
-            <div class="fragment-month-pages">
-                ${entries.map(({memory, date}) => {
-                    const type = String(memory.type || "factual");
-                    const typeInfo = fragmentTypeLabel(type);
-                    const source = String(memory.source_session || "").trim();
-                    const importance = Number(memory.importance);
-                    const tags = Array.isArray(memory.tags) ? memory.tags : [];
-                    return `
-                        <article class="fragment-entry" data-type="${escHtml(type)}">
-                            <time class="fragment-entry-date">
-                                <strong>${escHtml(date.day)}</strong>
-                                <span>${escHtml(date.clock)}</span>
-                            </time>
-                            <div class="fragment-entry-paper">
-                                <p>${escHtml(memory.content || "")}</p>
-                                <footer>
-                                    <span class="fragment-kind">${typeInfo.icon} ${escHtml(typeInfo.label)}</span>
-                                    ${source ? `<span>${escHtml(source)}</span>` : ""}
-                                    ${Number.isFinite(importance) ? `<span>记忆度 ${importance}</span>` : ""}
-                                    ${tags.map(tag => `<span class="fragment-tag">#${escHtml(tag)}</span>`).join("")}
-                                </footer>
-                            </div>
-                        </article>
-                    `;
-                }).join("")}
-            </div>
-        </section>
-    `).join("");
-}
-
-async function loadMemories() {
-    try {
-        const resp = await authFetch("/api/memories");
-        const data = await readJsonResponse(resp);
-        if (!resp.ok || data.error) {
-            throw new Error(data.error || "HTTP " + resp.status);
-        }
-
-        allMemories = Array.isArray(data.memories) ? data.memories : [];
-        setFragmentLedgerVisibility(allMemories.length > 0);
-        const stats = byId("stats");
-        if (stats) stats.textContent = allMemories.length + " 枚旧记忆";
-        renderFragmentLedger(allMemories);
-    } catch (e) {
-        const container = byId("memorySections");
-        if (container && !container.innerHTML) {
-            container.innerHTML = '<div class="memory-card-empty">载入失败</div>';
-        }
-    }
 }
 
 function showMsg(containerId, text, type) {
@@ -575,13 +425,13 @@ async function doTextImport() {
             "✅ 导入完成！新增 " + data.imported + " 条，跳过 " + data.skipped + " 条（已存在），总计 " + data.total + " 条"
         );
 
-        await loadMemories();
     } catch (e) {
         showImportResult("error", "❌ 请求失败：" + e.message);
     }
 }
 
 async function previewJson() {
+    if (jsonImportInProgress) return;
     const fileEl = byId("jsonFile");
     const textEl = byId("jsonInput");
     const preview = byId("jsonPreview");
@@ -615,6 +465,16 @@ async function previewJson() {
             resetJsonPreview();
             return;
         }
+        if (isBackupPayload && parsed.schema_version >= 22 && !Array.isArray(parsed.diary_monthly_summaries)) {
+            showImportResult('error', '备份缺少月度总结，请重新导出完整文件');
+            resetJsonPreview(); return;
+        }
+        if (isBackupPayload && parsed.schema_version >= 21 &&
+            ['identity_presets','flow_memory_settings'].some(section => !Array.isArray(parsed[section]))) {
+            showImportResult('error','备份缺少人物预设或流动记忆设置，请重新导出完整文件');
+            resetJsonPreview();
+            return;
+        }
         const isFullBackup = isBackupPayload;
 
         if (!isFullBackup && mems.length === 0) {
@@ -628,15 +488,21 @@ async function previewJson() {
         let html = "";
         if (isFullBackup) {
             const standing = Array.isArray(parsed.standing_memory_blocks) ? parsed.standing_memory_blocks.length : 0;
-            const longTerm = Array.isArray(parsed.long_term_memories) ? parsed.long_term_memories.length : 0;
+            const diaryCount = Array.isArray(parsed.long_term_memories)
+                ? parsed.long_term_memories.filter(memory => {
+                    const metadata = typeof memory?.metadata === "string"
+                        ? JSON.parse(memory.metadata || "{}")
+                        : (memory?.metadata || {});
+                    return metadata.entry_kind !== "fragment";
+                }).length
+                : 0;
             const longTermPendingCount = Array.isArray(parsed.long_term_memory_proposals)
                 ? parsed.long_term_memory_proposals.length
                 : 0;
             const conversations = Array.isArray(parsed.conversations) ? parsed.conversations.length : 0;
             const messages = Array.isArray(parsed.context_messages) ? parsed.context_messages.length : 0;
             const prompts = Array.isArray(parsed.prompt_sections) ? parsed.prompt_sections.length : 0;
-            const extractionJobs = Array.isArray(parsed.memory_extraction_jobs) ? parsed.memory_extraction_jobs.length : 0;
-            const forgettingPending = Array.isArray(parsed.fragment_forgetting_pending) ? parsed.fragment_forgetting_pending.length : 0;
+            const notes = Array.isArray(parsed.cover_notes) ? parsed.cover_notes.length : 0;
             const summaries = Array.isArray(parsed.conversations)
                 ? parsed.conversations.reduce(
                     (count, conversation) => count
@@ -645,15 +511,23 @@ async function previewJson() {
                     0
                 )
                 : 0;
-            html += '<p><b>完整备份</b></p>';
+            html += '<p><b>' + (parsed.backup_options?.include_messages === false ? '轻量备份' : '完整备份') + '</b></p>';
             html += '<div class="preview-item">记忆条目 ' + standing
-                + ' 条 · 日记 ' + longTerm + ' 篇 · 日记 Pending '
+                + ' 条 · 日记 ' + diaryCount + ' 篇 · 日记 Pending '
                 + longTermPendingCount + ' 条</div>';
+            html += '<div class="preview-item">' + (parsed.schema_version >= 22
+                ? '月度总结 ' + parsed.diary_monthly_summaries.length + ' 份'
+                : '旧版备份不含月度总结，恢复时将清除当前月度总结') + '</div>';
             html += '<div class="preview-item">会话 ' + conversations + ' 个 · 消息 ' + messages + ' 条</div>';
-            html += '<div class="preview-item">提示词 ' + prompts + ' 段 · 提取任务 '
-                + extractionJobs + ' 个 · 待遗忘 ' + forgettingPending + ' 条</div>';
-            html += '<div class="preview-item">交接摘要 ' + summaries + ' 份 · 旧碎片 ' + mems.length + ' 条</div>';
-            html += '<div class="preview-item" style="color:var(--rust);">恢复会覆盖当前记忆条目、日记和会话</div>';
+            html += '<div class="preview-item">提示词 ' + prompts + ' 段 · 交接摘要 ' + summaries + ' 份</div>';
+            html += '<div class="preview-item">便签 ' + notes + ' 张 · 摆放位置请恢复“本机桌面”备份</div>';
+            html += '<div class="preview-item">' + (parsed.schema_version >= 21
+                ? '包含人物预设和流动记忆设置'
+                : '旧版备份未包含人物预设和流动记忆设置，保留当前设置') + '</div>';
+            html += '<label class="transfer-history-option"><input type="checkbox" id="restore-history-messages"'
+                + (messages === 0 ? ' disabled' : '') + '>恢复历史消息（' + messages + ' 条，默认跳过）</label>';
+            html += '<p class="transfer-restore-note">默认只恢复提示词、记忆、日记、会话信息和摘要。现有历史消息会被清除。</p>';
+            html += '<div class="preview-item transfer-danger">恢复会覆盖当前记忆条目、日记和会话</div>';
         } else {
             html += '<p><b>预览：共 ' + mems.length + ' 条旧碎片</b></p>';
             const show = mems.slice(0, 10);
@@ -669,7 +543,7 @@ async function previewJson() {
             }
         }
 
-        html += '<br><button type="button" class="btn btn-primary" onclick="confirmJsonImport()">'
+        html += '<br><button id="confirm-json-import" type="button" class="btn ' + (isFullBackup ? 'btn-danger' : 'btn-primary') + '" onclick="confirmJsonImport()">'
             + (isFullBackup ? "确认恢复" : "确认导入") + '</button>';
         preview.innerHTML = html;
         preview.classList.add("visible");
@@ -682,26 +556,49 @@ async function previewJson() {
 }
 
 async function confirmJsonImport() {
+    if (jsonImportInProgress) return;
     if (!pendingJsonData) {
         showImportResult("error", "请先预览");
         return;
     }
 
     const isFullBackup = pendingJsonData.kind === "memory_gateway_backup";
-    if (isFullBackup && !window.confirm("完整恢复会覆盖当前提示词、记忆、后台任务和全部会话。确认继续吗？")) {
+    const includeMessages = !isFullBackup || Boolean(byId("restore-history-messages")?.checked);
+    // Remove the large arrays before uploading an existing full backup. The
+    // server also clears message references and injection state consistently.
+    const payload = isFullBackup && !includeMessages
+        ? {...pendingJsonData, context_messages: [], conversation_extra_prompt_injections: []}
+        : pendingJsonData;
+    const historyNote = includeMessages ? "本次包含备份中的历史消息。" : "本次不恢复历史消息，现有历史消息也会被清除。";
+    if (isFullBackup && !window.confirm("完整恢复会覆盖当前提示词、记忆、备份中包含的设置、后台任务和全部会话。" + historyNote + "确认继续吗？")) {
         return;
     }
 
-    showImportResult("info", isFullBackup ? "恢复中..." : "导入中...");
+    jsonImportInProgress = true;
+    const button = byId("confirm-json-import");
+    if (button) button.disabled = true;
+    const controller = new AbortController();
+    // Allow the server's ten-minute transaction deadline to return its result.
+    const timeout = setTimeout(() => controller.abort(), 660000);
+    const started = Date.now();
+    const updateWaiting = () => {
+        const elapsed = Math.floor((Date.now() - started) / 1000);
+        showImportResult("info", (isFullBackup ? "恢复中..." : "导入中...")
+            + " 已等待 " + elapsed + " 秒，请勿重复提交。"
+            + (elapsed >= 30 ? "等待时间较长；服务端可能仍在处理，尚未确认完成。" : ""));
+    };
+    updateWaiting();
+    const waitingTimer = setInterval(updateWaiting, 1000);
 
     try {
-        const resp = await authFetch("/import/memories", {
+        const resp = await authFetch("/import/memories?include_messages=" + includeMessages, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(pendingJsonData)
+            body: JSON.stringify(payload),
+            signal: controller.signal
         });
 
-        const data = await resp.json();
+        const data = await readJsonResponse(resp);
 
         if (!resp.ok || data.error) {
             throw new Error(data.error || "HTTP " + resp.status);
@@ -709,11 +606,19 @@ async function confirmJsonImport() {
 
         if (data.kind === "memory_gateway_backup") {
             const restored = data.restored || {};
+            const diaryCount = Array.isArray(payload.long_term_memories)
+                ? payload.long_term_memories.filter(memory => {
+                    const metadata = typeof memory?.metadata === "string"
+                        ? JSON.parse(memory.metadata || "{}")
+                        : (memory?.metadata || {});
+                    return metadata.entry_kind !== "fragment";
+                }).length
+                : 0;
             showImportResult(
                 "success",
                 "✅ 恢复完成！记忆条目 " + (restored.standing_memory_blocks || 0)
-                    + " 条，日记 " + (restored.long_term_memories || 0)
-                    + " 条，长期 Pending " + (restored.long_term_memory_proposals || 0)
+                    + " 条，日记 " + diaryCount
+                    + " 篇，长期 Pending " + (restored.long_term_memory_proposals || 0)
                     + " 条，会话 " + (restored.conversations || 0)
                     + " 个，消息 " + (restored.context_messages || 0) + " 条"
             );
@@ -724,10 +629,17 @@ async function confirmJsonImport() {
             );
         }
 
+        if (isFullBackup && document.querySelector('[data-preset-name]')) void refreshIdentityPresetNames();
         resetJsonPreview();
-        await loadMemories();
     } catch (e) {
-        showImportResult("error", "❌ 请求失败：" + e.message);
+        showImportResult("error", controller.signal.aborted
+            ? "等待超过 11 分钟，恢复结果尚未确认，请刷新核对数据并检查服务日志后再操作。"
+            : "❌ 请求失败：" + e.message + "。如连接中断，请先核对数据再重试。");
+    } finally {
+        clearTimeout(timeout);
+        clearInterval(waitingTimer);
+        jsonImportInProgress = false;
+        if (button) button.disabled = false;
     }
 }
 
@@ -784,7 +696,7 @@ async function loadExportStats() {
         }
 
         const standingCount = Array.isArray(standingData.blocks) ? standingData.blocks.length : 0;
-        const longTermCount = Number((standingData.overview || {}).diary_count) || 0;
+        const diaryCount = Number((standingData.overview || {}).diary_count) || 0;
         const conversations = Array.isArray(conversationsData.conversations)
             ? conversationsData.conversations
             : [];
@@ -792,8 +704,7 @@ async function loadExportStats() {
             (sum, conversation) => sum + (Number(conversation.message_count) || 0),
             0
         );
-        el.textContent = "记忆条目 " + standingCount + " 条 · 日记 "
-            + longTermCount + " 篇 · 会话 "
+        el.textContent = "记忆条目 " + standingCount + " 条 · 日记 " + diaryCount + " 篇 · 会话 "
             + conversations.length + " 个 · 消息 " + messageCount + " 条";
     } catch (e) {
         el.textContent = "无法加载统计";
@@ -801,12 +712,160 @@ async function loadExportStats() {
 }
 
 function doExport() {
-    window.location.assign("/export/memories");
+    const button = byId("export-download"), status = byId("export-progress");
+    if (button.disabled) return;
+    const includeMessages = Boolean(byId("export-history-messages")?.checked);
+    const exportId = crypto.randomUUID().replaceAll("-", "");
+    button.disabled = true; status.textContent = "连接数据库…";
+    byId("export-download-frame").src = "/export/memories?include_messages=" + includeMessages + "&export_id=" + exportId;
+    const stages = {connecting:"连接数据库",counting:"统计记忆",prompt_sections:"读取提示词",
+        identity_presets:"读取人物预设",flow_memory_settings:"读取流动记忆设置",
+        memories:"读取记忆",standing_memory_blocks:"读取常驻记忆",long_term_memories:"读取日记",
+        long_term_memory_proposals:"读取日记待办",memory_update_proposals:"读取记忆待办",
+        conversations:"读取会话",context_messages:"读取聊天消息",conversation_prompt_sources:"读取捕获提示词",
+        conversation_extra_prompts:"读取额外提示词",extra_prompt_presets:"读取提示词预设",
+        conversation_extra_prompt_injections:"读取注入记录",raw_memory_ledger:"读取记忆来源",
+        diary_monthly_summaries:"读取月度总结",cover_notes:"读取便签",nocturne_extraction_jobs:"读取后台任务"};
+    const started = Date.now(); let failures = 0, lastProgress = "";
+    async function poll() {
+        const controller = new AbortController(), timer = setTimeout(()=>controller.abort(),5000);
+        try {
+            const response = await authFetch("/api/export-progress/" + exportId, {signal:controller.signal});
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            const data = await readJsonResponse(response);
+            if (data.status === "missing") {
+                status.textContent = "等待导出状态…";
+                if (Date.now()-started > 30000) throw new Error("服务器未找到本次导出记录");
+            } else {
+                if (!["running", "failed", "interrupted", "completed"].includes(data.status)) {
+                    throw new Error("服务器返回了无效的导出状态");
+                }
+                failures = 0;
+                const stage = stages[data.section] || "读取数据";
+                const size = (Number(data.bytes_sent || 0)/1024/1024).toFixed(2) + " MB";
+                status.textContent = `${stage} · 已读取 ${Number(data.rows || 0).toLocaleString()} 条 · 已发送 ${size} · ${data.elapsed_seconds || 0} 秒`;
+                lastProgress = status.textContent;
+                if (data.status === "failed") status.textContent = `导出失败：${stage}（${data.error || "未知错误"}）`;
+                if (data.status === "interrupted") status.textContent = `导出中断：${stage}，连接断开或请求被取消`;
+                if (data.status === "completed") status.textContent = `发送完成 · ${size}`;
+                if (data.status !== "running") { button.disabled = false; return; }
+            }
+        } catch (error) {
+            const reason = controller.signal.aborted ? "进度请求超时" : (error.message || "网络连接失败");
+            const detail = lastProgress ? "；最后进度：" + lastProgress : "；尚未收到导出进度";
+            status.textContent = "暂时无法读取导出状态（" + reason + "），正在重试" + detail;
+            if (++failures >= 3) {
+                status.textContent = "无法确认导出结果（" + reason + "）" + detail + "。若下载已中断，请提供此提示和后端错误日志";
+                button.disabled = false; return;
+            }
+        } finally { clearTimeout(timer); }
+        setTimeout(poll,1000);
+    }
+    poll();
 }
 
 // ============================================
 // 记忆
 // ============================================
+let fragmentCategory = "";
+let fragmentImportanceMax = "";
+let fragmentBefore = null;
+let fragmentRequest = 0;
+let editingFragment = null;
+function openFragmentEditor(row = null) {
+    const dialog = byId("fragment-editor"), form = dialog.querySelector("form");
+    editingFragment = row;
+    form.reset();
+    form.elements.content.value = row?.content || "";
+    for (const box of form.querySelectorAll("[name=category]")) box.checked = Boolean(row?.tags.includes(box.value));
+    form.elements.importance.value = row?.importance ?? 5;
+    byId("fragment-editor-title").textContent = row ? "编辑记忆片段" : "写记忆片段";
+    byId("fragment-delete").hidden = !row;
+    form.querySelector("[role=status]").textContent = "";
+    dialog.showModal();
+}
+function deleteManualFragment(form) {
+    if (editingFragment && confirm("删除这条记忆片段？删除后无法恢复。")) submitFragment(form, "DELETE");
+}
+function saveManualFragment(form) {
+    return submitFragment(form, editingFragment ? "PUT" : "POST");
+}
+async function submitFragment(form, method) {
+    const row = editingFragment, dialog = form.closest("dialog");
+    const payload = {};
+    const status = form.querySelector("[role=status]");
+    if (method !== "DELETE") {
+        payload.content = form.elements.content.value.trim();
+        const importance = form.elements.importance.valueAsNumber;
+        if (!row || importance !== (row.importance ?? 5)) {
+            payload.importance = importance;
+            if (row) payload.original_importance = row.importance ?? null;
+        }
+        payload.categories = [...form.querySelectorAll("input:checked")].map(node => node.value);
+        if (!payload.content || !payload.categories.length) {status.textContent = "请填写正文并选择类别。"; return;}
+    }
+    if (row) {
+        payload.original_content = row.content;
+        payload.original_categories = row.tags;
+    }
+    const buttons = form.querySelectorAll("button");
+    buttons.forEach(button => { button.disabled = true; });
+    const preventClose = event => event.preventDefault();
+    dialog.addEventListener("cancel", preventClose);
+    try {
+        await saveDashboardJson("/api/memory-fragments" + (row ? "/" + row.id : ""), {
+            method, headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)
+        });
+        dialog.close();
+        if (row) await loadFragmentPage();
+        else {
+            byId("fragment-query").value = "";
+            byId("fragment-importance").value = "";
+            fragmentImportanceMax = "";
+            selectFragmentCategory(byId("fragment-filters").querySelector("button"));
+        }
+    } catch (error) { status.textContent = error.message; }
+    finally {
+        buttons.forEach(button => { button.disabled = false; });
+        dialog.removeEventListener("cancel", preventClose);
+    }
+}
+function selectFragmentCategory(button) {
+    for (const node of byId("fragment-filters").querySelectorAll("button")) node.setAttribute("aria-pressed", String(node === button));
+    fragmentCategory = button.textContent === "全部" ? "" : button.textContent;
+    loadFragmentPage();
+}
+async function loadFragmentPage(more = false) {
+    const token = ++fragmentRequest;
+    const next = byId("fragment-more");
+    const query = new URLSearchParams({query:byId("fragment-query").value.trim(), category:fragmentCategory});
+    const importanceSelect = byId("fragment-importance");
+    fragmentImportanceMax = importanceSelect.value;
+    importanceSelect.closest(".importance-chip").classList.toggle("is-active", Boolean(fragmentImportanceMax));
+    if (fragmentImportanceMax) query.set("max_importance", fragmentImportanceMax);
+    if (more && fragmentBefore) query.set("before", fragmentBefore);
+    next.disabled = true;
+    try {
+        const rows = await saveDashboardJson("/api/memory-fragments?" + query);
+        if (token !== fragmentRequest) return;
+        window.AshArchive.renderFragments(rows, more);
+        fragmentBefore = rows.at(-1)?.id;
+        next.hidden = rows.length < 40;
+    } catch (error) {
+        if (token === fragmentRequest) {
+            if (!more) {
+                window.AshArchive.renderFragments([], false);
+                fragmentBefore = null;
+                next.hidden = true;
+            }
+            byId("fragment-empty").hidden = false;
+            byId("fragment-empty").textContent = "读取失败：" + error.message;
+        }
+    } finally {
+        if (token === fragmentRequest) next.disabled = false;
+    }
+}
+
 async function loadStandingMemory() {
     const generation = ++standingLoadGeneration;
     try {
@@ -833,14 +892,11 @@ function renderStandingStats() {
     if (!stats) return;
     const active = standingBlocks.filter(b => b.status === "active").length;
     const pending = standingBlocks.filter(b => b.status === "pending").length;
-    stats.textContent = active + " 条记忆，" + pending + " 个常驻 pending，"
-        + (Number(standingOverview.fragment_count) || 0) + " 条碎片记忆，"
-        + (Number(standingOverview.diary_count) || 0) + " 篇日记，"
-        + (Number(standingOverview.diary_pending_count) || 0) + " 个日记 pending 请求";
+    stats.textContent = active + " 条记忆" + (pending ? " · " + pending + " 条待确认" : "");
 }
 
 function switchStandingView(name) {
-    const viewName = ["directory", "fragments", "long-term"].includes(name)
+    const viewName = ["directory", "long-term"].includes(name)
         ? name
         : "directory";
     document.querySelectorAll("[data-standing-view]").forEach(button => {
@@ -849,167 +905,165 @@ function switchStandingView(name) {
     document.querySelectorAll(".standing-view").forEach(view => {
         view.classList.toggle("active", view.id === "standing-view-" + viewName);
     });
-    if (["fragments", "long-term"].includes(viewName)) loadLongTermMemory();
-}
-
-async function loadLongTermMemory() {
-    const generation = ++longTermLoadGeneration;
-    try {
-        const resp = await authFetch("/api/diaries");
-        const data = await readJsonResponse(resp);
-        if (!resp.ok || data.error) {
-            throw new Error(data.error || "HTTP " + resp.status);
-        }
-        if (generation !== longTermLoadGeneration) return;
-        memoryFragments = Array.isArray(data.fragments) ? data.fragments : [];
-        longTermMemories = Array.isArray(data.diaries) ? data.diaries : [];
-        longTermPending = Array.isArray(data.pending) ? data.pending : [];
-        const availableIds = new Set(longTermMemories.map(memory => Number(memory.id)));
-        [...longTermSelectedIds].forEach(id => {
-            if (!availableIds.has(id)) longTermSelectedIds.delete(id);
-        });
-        renderLongTermMemories();
-        renderMemoryFragments();
-        loadMemoryExtractionStatus();
-        loadFragmentForgetting();
-        renderPendingLongTermMemories();
-    } catch (e) {
-        if (generation !== longTermLoadGeneration) return;
-        showLongTermMsg("error", "加载日记失败：" + e.message);
+    if (viewName === "long-term") {
+        loadVisibleLongTermView(viewName);
     }
 }
 
+function loadVisibleLongTermView(viewName) {
+    if (viewName === "long-term") {
+        loadDiaries();
+        loadDiaryPending();
+    }
+}
+
+// Refresh only the visible long-term-memory branch.
+async function loadLongTermMemory() {
+    const view = document.querySelector("[data-standing-view].active")?.dataset.standingView;
+    if (view === "long-term" || byId("diary-notebook")?.classList.contains("open")) {
+        return Promise.all([loadDiaries(), loadDiaryPending()]);
+    }
+}
+
+function markDiariesDirty() {
+    diariesDirty = true;
+    ++diariesLoadGeneration;
+}
+
+function markDiaryPendingDirty() {
+    diaryPendingDirty = true;
+}
+
+
+async function loadDiaries() {
+    if (diariesLoaded && !diariesDirty) {
+        renderLongTermMemories();
+        return;
+    }
+    if (diariesLoadPromise) return diariesLoadPromise;
+    const generation = ++diariesLoadGeneration;
+    diariesLoadPromise = (async () => {
+        try {
+            const resp = await authFetch("/api/diaries");
+            const data = await readJsonResponse(resp);
+            if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
+            if (generation !== diariesLoadGeneration) return;
+            longTermMemories = Array.isArray(data.diaries) ? data.diaries : [];
+            diariesLoaded = true;
+            diariesDirty = false;
+            const availableIds = new Set(longTermMemories.map(memory => Number(memory.id)));
+            [...longTermSelectedIds].forEach(id => {
+                if (!availableIds.has(id)) longTermSelectedIds.delete(id);
+            });
+            renderLongTermMemories();
+            renderPendingLongTermMemories();
+        } catch (e) {
+            if (generation !== diariesLoadGeneration) return;
+            showLongTermMsg("error", "加载日记失败：" + e.message);
+        } finally {
+            diariesLoadPromise = null;
+        }
+    })();
+    return diariesLoadPromise;
+}
+
+async function loadDiaryPending() {
+    if (diaryPendingLoaded && !diaryPendingDirty) {
+        renderPendingLongTermMemories();
+        return;
+    }
+    if (diaryPendingLoadPromise) return diaryPendingLoadPromise;
+    diaryPendingLoadPromise = (async () => {
+        try {
+            const resp = await authFetch("/api/diaries/pending");
+            const data = await readJsonResponse(resp);
+            if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
+            longTermPending = Array.isArray(data.pending) ? data.pending : [];
+            diaryPendingLoaded = true;
+            diaryPendingDirty = false;
+            renderPendingLongTermMemories();
+        } catch (e) {
+            showLongTermMsg("error", "加载日记 Pending 失败：" + e.message);
+        } finally {
+            diaryPendingLoadPromise = null;
+        }
+    })();
+    return diaryPendingLoadPromise;
+}
+
+
 function applySavedDiary(diary) {
-    ++longTermLoadGeneration;
+    ++diariesLoadGeneration;
+    const listItem = {
+        id: diary.id,
+        title: diary.title || "",
+        diary_date: diary.diary_date || "",
+        keywords: Array.isArray(diary.keywords) ? diary.keywords : [],
+    };
     const index = longTermMemories.findIndex(item => Number(item.id) === Number(diary.id));
     if (index < 0) {
-        longTermMemories.push(diary);
+        longTermMemories.push(listItem);
         standingOverview.diary_count = (Number(standingOverview.diary_count) || 0) + 1;
-    } else longTermMemories[index] = diary;
+    } else longTermMemories[index] = listItem;
+    diariesLoaded = true;
+    diariesDirty = true;
     renderStandingStats();
     renderLongTermMemories();
     renderPendingLongTermMemories();
 }
 
-function renderMemoryFragments() {
-    const list = byId("memory-fragment-list");
-    const count = byId("memory-fragment-count");
-    if (count) count.textContent = memoryFragments.length + " 条";
-    if (!list) return;
-    if (!memoryFragments.length) {
-        list.innerHTML = '<div class="standing-empty">还没有归档的碎片记忆</div>';
-        return;
+// Bound comparisons so large proposals cannot freeze the review screen.
+function pendingDiffParts(before, after, split = true) {
+    let prefix = 0, suffix = 0;
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+    while (suffix < before.length - prefix && suffix < after.length - prefix &&
+        before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    const head = before.slice(0, prefix).join("");
+    const tail = suffix ? before.slice(before.length - suffix).join("") : "";
+    const left = before.slice(prefix, before.length - suffix);
+    const right = after.slice(prefix, after.length - suffix);
+    const parts = head ? [{kind: "same", text: head}] : [];
+    if (left.length && right.length && left.length * right.length <= (split ? 1000000 : 4000000)) {
+        const width = right.length + 1;
+        const lengths = new Uint32Array((left.length + 1) * width);
+        for (let i = left.length - 1; i >= 0; i--) {
+            for (let j = right.length - 1; j >= 0; j--) {
+                lengths[i * width + j] = left[i] === right[j]
+                    ? 1 + lengths[(i + 1) * width + j + 1]
+                    : Math.max(lengths[(i + 1) * width + j], lengths[i * width + j + 1]);
+            }
+        }
+        let i = 0, j = 0;
+        const append = (kind, text) => {
+            if (parts.at(-1)?.kind === kind) parts.at(-1).text += text;
+            else parts.push({kind, text});
+        };
+        while (i < left.length || j < right.length) {
+            if (i < left.length && j < right.length && left[i] === right[j]) {
+                append("same", left[i++]); j++;
+            } else if (i < left.length && (j === right.length ||
+                lengths[(i + 1) * width + j] >= lengths[i * width + j + 1])) {
+                append("removed", left[i++]);
+            } else append("added", right[j++]);
+        }
+    } else if (left.length && right.length && split) {
+        const sentences = value => value.join("").match(/[^。！？.!?\n]+[。！？.!?\n]*|[。！？.!?\n]+/gu) || [];
+        parts.push(...pendingDiffParts(sentences(left), sentences(right), false));
+    } else {
+        if (left.length) parts.push({kind: "removed", text: left.join("")});
+        if (right.length) parts.push({kind: "added", text: right.join("")});
     }
-    const ordered = [...memoryFragments].sort((left, right) => Number(right.id) - Number(left.id));
-    list.innerHTML = ordered.map(memory => {
-        const memoryId = Number(memory.id);
-        const content = String(memory.content || "").trim();
-        const anchors = Array.isArray(memory.anchors) ? memory.anchors : [];
-        const evidence = anchors.length
-            ? '<details><summary>原话来源</summary>' + anchors.map(anchor =>
-                '<blockquote>' + escHtml(anchor.quote) + '</blockquote><small>' +
-                escHtml(anchor.role === 'user' ? '用户' : '助手') + ' · 会话 #' +
-                escHtml(anchor.conversation_id) + ' · 消息 #' + escHtml(anchor.message_id) + '</small>'
-              ).join('') + '</details>'
-            : '<small>旧记录：暂无原话锚点</small>';
-        return (
-            '<article class="long-term-memory-card memory-fragment-card">' +
-                '<div class="memory-fragment-content">' + escHtml(content || "空碎片") + evidence + '</div>' +
-                '<button type="button" class="kelivo-icon-btn delete" title="删除" onclick="deleteMemoryFragment(' + memoryId + ')">删除</button>' +
-            '</article>'
-        );
-    }).join("");
-}
-
-async function loadMemoryExtractionStatus() {
-    const node = byId('memory-extraction-status');
-    if (!node) return;
-    try {
-        const response = await authFetch('/api/memory-extraction/jobs');
-        const data = await readJsonResponse(response);
-        if (!response.ok || data.error) throw new Error('无法加载');
-        const labels = {pending: '等待提取', running: '正在提取', completed: '提取完成', failed: '提取失败，请检查提取模型配置'};
-        node.textContent = (data.jobs || []).slice(0, 3).map(job =>
-            '会话 #' + job.source_conversation_id + '：' + (labels[job.status] || job.status)
-        ).join(' · ');
-    } catch (error) {
-        node.textContent = '暂时无法读取后台提取状态';
-    }
-}
-
-async function loadFragmentForgetting() {
-    const node = byId('fragment-forgetting-list');
-    if (!node) return;
-    try {
-        const response = await authFetch('/api/fragments/forgetting');
-        const data = await readJsonResponse(response);
-        if (!response.ok || data.error) throw new Error(data.error || '加载失败');
-        node.innerHTML = (data.pending || []).map(item =>
-            '<article class="memory-fragment-card long-term-memory-card"><div class="memory-fragment-content">' +
-            escHtml(item.content) + (item.anchors || []).map(anchor =>
-                '<blockquote>' + escHtml(anchor.quote) + '</blockquote><small>会话 #' +
-                escHtml(anchor.conversation_id) + ' · 消息 #' + escHtml(anchor.message_id) + '</small>'
-            ).join('') + '</div><button class="btn btn-secondary" onclick="resolveFragmentForgetting(' +
-            Number(item.id) + ',false,this)">保留</button><button class="btn btn-danger" onclick="resolveFragmentForgetting(' +
-            Number(item.id) + ',true,this)">确认遗忘</button></article>'
-        ).join('') || '<p class="credential-help">暂无待遗忘碎片</p>';
-    } catch (error) {
-        node.textContent = '加载待遗忘失败：' + error.message;
-    }
-}
-
-async function resolveFragmentForgetting(id, forget, button) {
-    button.disabled = true;
-    try {
-        const response = await authFetch('/api/fragments/' + id + '/forgetting/' + (forget ? 'approve' : 'retain'), {method: 'POST'});
-        const data = await readJsonResponse(response);
-        if (!response.ok || data.error) throw new Error(data.error || '处理失败');
-        await loadLongTermMemory();
-    } catch (error) {
-        showLongTermMsg('error', error.message);
-    } finally {
-        button.disabled = false;
-    }
-}
-
-async function deleteMemoryFragment(id) {
-    if (!confirm("确定删除碎片记忆 #" + id + "？")) return;
-    try {
-        const resp = await authFetch("/api/diaries/" + id, {method: "DELETE"});
-        const data = await readJsonResponse(resp);
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        await Promise.all([loadLongTermMemory(), loadStandingMemory()]);
-    } catch (e) {
-        showLongTermMsg("error", "删除碎片记忆失败：" + e.message);
-    }
+    if (tail) parts.push({kind: "same", text: tail});
+    return parts;
 }
 
 function pendingInlineDiff(beforeValue, afterValue) {
-    const before = Array.from(String(beforeValue == null ? "" : beforeValue));
-    const after = Array.from(String(afterValue == null ? "" : afterValue));
-    let prefix = 0;
-    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) {
-        prefix += 1;
-    }
-    let suffix = 0;
-    while (
-        suffix < before.length - prefix &&
-        suffix < after.length - prefix &&
-        before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
-    ) {
-        suffix += 1;
-    }
-    const commonStart = before.slice(0, prefix).join("");
-    const commonEnd = suffix ? before.slice(before.length - suffix).join("") : "";
-    const removed = before.slice(prefix, before.length - suffix).join("");
-    const added = after.slice(prefix, after.length - suffix).join("");
+    const parts = pendingDiffParts(Array.from(String(beforeValue ?? "")), Array.from(String(afterValue ?? "")));
     return {
-        before: escHtml(commonStart) +
-            (removed ? '<del class="pending-diff-removed">' + escHtml(removed) + '</del>' : "") +
-            escHtml(commonEnd),
-        after: escHtml(commonStart) +
-            (added ? '<mark class="pending-diff-added">' + escHtml(added) + '</mark>' : "") +
-            escHtml(commonEnd),
+        before: parts.filter(part => part.kind !== "added").map(part => part.kind === "removed"
+            ? '<del class="pending-diff-removed">' + escHtml(part.text) + '</del>' : escHtml(part.text)).join(""),
+        after: parts.filter(part => part.kind !== "removed").map(part => part.kind === "added"
+            ? '<mark class="pending-diff-added">' + escHtml(part.text) + '</mark>' : escHtml(part.text)).join(""),
     };
 }
 
@@ -1058,6 +1112,15 @@ function renderLongTermPendingDiff(proposal, operation, target) {
     return html || '<div class="pending-diff-empty">没有检测到字段变化</div>';
 }
 
+function renderDiaryMergeSources(metadata) {
+    const sources = metadata && metadata.merge_sources;
+    if (!Array.isArray(sources) || !sources.length) return "";
+    return '<details class="diary-merge-sources"><summary>查看合并前原文（' + sources.length + ' 篇）</summary>' +
+        sources.map(source => '<section><h4>' + escHtml(source.title || "未命名") +
+            ' · #' + Number(source.id) + '</h4><div style="white-space:pre-wrap">' +
+            escHtml(source.content) + '</div>' + renderDiaryMergeSources(source.metadata) + '</section>').join("") + '</details>';
+}
+
 function renderPendingLongTermMemories() {
     const section = byId("long-term-pending-section");
     const list = byId("long-term-pending-list");
@@ -1069,12 +1132,13 @@ function renderPendingLongTermMemories() {
         const id = Number(proposal.id);
         const targetId = Number(proposal.target_diary_id || 0);
         const operation = String(proposal.operation || "create");
-        const operationLabel = operation === "edit"
+        const mergeSources = proposal.metadata && proposal.metadata.merge_sources;
+        const operationLabel = Array.isArray(mergeSources) ? "合并 " + mergeSources.length + " 篇日记 · " + proposal.diary_date : operation === "edit"
             ? "修改 #" + targetId
             : (operation === "delete" ? "删除 #" + targetId : "创建日记");
-        const target = targetId
+        const target = proposal.target_diary || (targetId
             ? longTermMemories.find(memory => Number(memory.id) === targetId)
-            : null;
+            : null);
         const diffHtml = renderLongTermPendingDiff(proposal, operation, target);
         return (
             '<article class="pending-memory-card long-term-pending-card">' +
@@ -1085,7 +1149,7 @@ function renderPendingLongTermMemories() {
                         '<button type="button" class="btn btn-danger btn-sm" onclick="rejectLongTermMemoryProposal(' + id + ')">拒绝</button>' +
                     '</div>' +
                 '</div>' +
-                '<div class="pending-memory-diff">' + diffHtml + '</div>' +
+                '<div class="pending-memory-diff">' + diffHtml + renderDiaryMergeSources(proposal.metadata) + '</div>' +
             '</article>'
         );
     }).join("");
@@ -1151,6 +1215,7 @@ function compareLongTermMemoriesNewestFirst(left, right) {
 }
 
 function renderLongTermMemories() {
+    if (typeof renderDiaryNotebook === "function") renderDiaryNotebook();
     const list = byId("long-term-list");
     const count = byId("long-term-count");
     const missingKeywordCount = longTermMemories.filter(memory =>
@@ -1195,11 +1260,6 @@ function renderLongTermMemories() {
             : '<span class="long-term-memory-date is-empty"><strong>—</strong><span>未标注</span></span>';
         const memoryId = Number(memory.id);
         const selected = longTermSelectedIds.has(memoryId);
-        const selectionControl = longTermSelectionMode
-            ? '<input type="checkbox" class="long-term-memory-checkbox" aria-label="选择日记 ' +
-                escHtml(memory.title || ("#" + memoryId)) + '" ' + (selected ? "checked" : "") +
-                ' onclick="event.stopPropagation()" onchange="toggleLongTermMemorySelection(' + memoryId + ')">'
-            : "";
         const itemActions = longTermSelectionMode ? "" : (
             '<button type="button" class="long-term-summary-button" onclick="openLongTermSummaryEditor(' + memoryId + ')">关键词</button>' +
             '<button type="button" class="kelivo-icon-btn delete" aria-label="删除日记" title="删除" onclick="deleteLongTermMemory(' + memoryId + ')">' +
@@ -1210,11 +1270,11 @@ function renderLongTermMemories() {
         );
         return (
             '<article class="long-term-memory-card' + (longTermSelectionMode ? ' is-selecting' : '') + (selected ? ' is-selected' : '') + '">' +
-                selectionControl +
-                '<button type="button" class="long-term-memory-main" onclick="handleLongTermMemoryCardClick(' + memoryId + ')">' +
+                '<button type="button" class="long-term-memory-main"' + (longTermSelectionMode ? ' aria-pressed="' + selected + '"' : '') + ' onclick="handleLongTermMemoryCardClick(' + memoryId + ')">' +
                     dateHtml +
                     '<span class="long-term-memory-copy">' +
                         '<span class="long-term-memory-title">' + escHtml(memory.title || "未命名") + '</span>' +
+                        '<span class="diary-author-label">' + diaryAuthorLabel(memory) + '</span>' +
                         summaryHtml +
                     '</span>' +
                 '</button>' +
@@ -1237,6 +1297,8 @@ function updateLongTermSelectionControls() {
     const count = byId("long-term-selection-count");
     const selectAll = byId("long-term-select-all");
     const deleteButton = byId("long-term-delete-selected");
+    const keywordButton = byId("long-term-generate-keywords");
+    const busy = longTermBatchDeleting || longTermKeywordsGenerating;
     const selectedCount = longTermSelectedIds.size;
     const allSelected = longTermMemories.length > 0
         && selectedCount === longTermMemories.length;
@@ -1249,15 +1311,20 @@ function updateLongTermSelectionControls() {
     if (count) count.textContent = "已选 " + selectedCount + " 条";
     if (selectAll) {
         selectAll.textContent = allSelected ? "取消全选" : "全选";
-        selectAll.disabled = !longTermMemories.length || longTermBatchDeleting;
+        selectAll.disabled = !longTermMemories.length || busy;
     }
     if (deleteButton) {
         deleteButton.textContent = longTermBatchDeleting ? "删除中…" : "删除所选";
-        deleteButton.disabled = !selectedCount || longTermBatchDeleting;
+        deleteButton.disabled = !selectedCount || busy;
+    }
+    if (keywordButton) {
+        keywordButton.disabled = !selectedCount || busy;
+        keywordButton.textContent = longTermKeywordsGenerating ? longTermKeywordsProgress : "生成关键词";
     }
 }
 
 function toggleLongTermSelectionMode(force) {
+    if (longTermKeywordsGenerating) return;
     longTermSelectionMode = typeof force === "boolean" ? force : !longTermSelectionMode;
     if (!longTermSelectionMode) longTermSelectedIds.clear();
     renderLongTermMemories();
@@ -1272,6 +1339,7 @@ function handleLongTermMemoryCardClick(id) {
 }
 
 function toggleLongTermMemorySelection(id) {
+    if (longTermKeywordsGenerating) return;
     const numericId = Number(id);
     if (!Number.isInteger(numericId) || numericId <= 0) return;
     if (longTermSelectedIds.has(numericId)) {
@@ -1283,6 +1351,7 @@ function toggleLongTermMemorySelection(id) {
 }
 
 function toggleSelectAllLongTermMemories() {
+    if (longTermKeywordsGenerating) return;
     const allSelected = longTermMemories.length > 0
         && longTermSelectedIds.size === longTermMemories.length;
     longTermSelectedIds.clear();
@@ -1302,8 +1371,10 @@ function renderLongTermSummaryPreview() {
 
 async function openLongTermSummaryEditor(id) {
     const numericId = Number(id || 0);
+    const editingCurrent = Number(longTermEditingId || 0) === numericId
+        && byId("long-term-memory-editor-modal")?.classList.contains("open");
     let memory = null;
-    if (numericId > 0) {
+    if (numericId > 0 && !editingCurrent) {
         try {
             const resp = await authFetch("/api/diaries/" + numericId);
             const data = await readJsonResponse(resp);
@@ -1315,14 +1386,17 @@ async function openLongTermSummaryEditor(id) {
         }
     } else {
         memory = {
-            id: 0,
+            id: numericId,
             title: (byId("long-term-memory-title") || {}).value || "",
             content: (byId("long-term-memory-content") || {}).value || "",
             diary_date: (byId("long-term-memory-date") || {}).value || "",
             keywords: parseLongTermKeywords(ltmSummaryDraft),
+            author_role: byId("long-term-memory-author").value,
         };
     }
+    ++longTermSummaryGeneration;
     longTermSummaryTarget = memory;
+    setLongTermSummaryGenerating(false);
     const status = byId("long-term-summary-msg");
     if (status) status.textContent = "";
     byId("long-term-summary-content").value = normalizeLongTermKeywords(memory.keywords).join("\n");
@@ -1333,14 +1407,50 @@ async function openLongTermSummaryEditor(id) {
 }
 
 function closeLongTermSummaryEditor() {
+    ++longTermSummaryGeneration;
+    setLongTermSummaryGenerating(false);
     const modal = byId("long-term-summary-modal");
     if (modal) {
+        if (modal.contains(document.activeElement)) document.activeElement.blur();
         modal.classList.remove("open");
         modal.setAttribute("aria-hidden", "true");
     }
     const status = byId("long-term-summary-msg");
     if (status) status.textContent = "";
     longTermSummaryTarget = null;
+}
+
+function setLongTermSummaryGenerating(busy) {
+    const button = byId("long-term-summary-generate");
+    button.disabled = busy;
+    button.textContent = busy ? "生成中…" : "生成";
+    byId("long-term-summary-save").disabled = busy;
+    byId("long-term-summary-content").readOnly = busy;
+}
+
+async function generateLongTermSummaryKeywords() {
+    const target = longTermSummaryTarget;
+    if (!target || byId("long-term-summary-generate").disabled) return;
+    const status = byId("long-term-summary-msg");
+    if (!target.content?.trim()) { status.textContent = "请先填写日记正文"; return; }
+    const generation = ++longTermSummaryGeneration;
+    setLongTermSummaryGenerating(true);
+    status.textContent = "";
+    try {
+        const response = await authFetch("/api/diaries/keywords-preview", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({title:target.title || "", content:target.content,
+                author_role:target.author_role || "assistant"}),
+        });
+        const data = await readJsonResponse(response);
+        if (generation !== longTermSummaryGeneration || target !== longTermSummaryTarget) return;
+        if (!response.ok || data.error) throw new Error(data.error || "HTTP " + response.status);
+        byId("long-term-summary-content").value = normalizeLongTermKeywords(data.keywords).join("\n");
+    } catch (error) {
+        if (generation === longTermSummaryGeneration) status.textContent = error.message;
+    } finally {
+        if (generation === longTermSummaryGeneration) setLongTermSummaryGenerating(false);
+    }
 }
 
 async function saveLongTermSummary() {
@@ -1376,13 +1486,17 @@ function initLongTermMemoryEditor() {
         const input = byId(id);
         if (!input) return;
         input.addEventListener("keydown", event => {
-            if (event.key === "Escape") closeLongTermMemoryEditor();
+            if (event.key === "Escape" && !event.isComposing) closeLongTermMemoryEditor();
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
                 saveLongTermMemory();
             }
         });
     });
+}
+
+function diaryAuthorLabel(memory) {
+    return memory?.author_role === "user" ? "用户的日记" : "助手的日记";
 }
 
 async function openLongTermMemoryEditor(id) {
@@ -1410,11 +1524,14 @@ async function openLongTermMemoryEditor(id) {
         ? longTermMemoryDate(memory)
         : localDateInputValue();
     byId("long-term-memory-title").value = memory ? (memory.title || "") : "";
+    byId("long-term-memory-author").value = memory ? (memory.author_role || "assistant") : "user";
     ltmSummaryDraft = memory
         ? normalizeLongTermKeywords(memory.keywords).join("\n")
         : "";
     renderLongTermSummaryPreview();
     byId("long-term-memory-content").value = memory ? (memory.content || "") : "";
+    const mergeSources = byId("long-term-merge-sources");
+    if (mergeSources) mergeSources.innerHTML = renderDiaryMergeSources(memory && memory.metadata);
     modal.classList.add("open");
     modal.setAttribute("aria-hidden", "false");
     document.body.classList.add("memory-editor-open");
@@ -1425,6 +1542,7 @@ function closeLongTermMemoryEditor() {
     if (byId("long-term-memory-editor-msg")) byId("long-term-memory-editor-msg").textContent = "";
     const modal = byId("long-term-memory-editor-modal");
     if (modal) {
+        if (modal.contains(document.activeElement)) document.activeElement.blur();
         modal.classList.remove("open");
         modal.setAttribute("aria-hidden", "true");
     }
@@ -1435,6 +1553,7 @@ function closeLongTermMemoryEditor() {
     ltmSummaryDraft = "";
     renderLongTermSummaryPreview();
     document.body.classList.remove("memory-editor-open");
+    if (typeof syncMemoryModalScrollLock === "function") syncMemoryModalScrollLock();
     longTermEditingId = null;
 }
 
@@ -1443,6 +1562,7 @@ async function saveLongTermMemory() {
     const title = byId("long-term-memory-title").value.trim();
     const keywords = parseLongTermKeywords(ltmSummaryDraft);
     const content = byId("long-term-memory-content").value.trim();
+    const author_role = byId("long-term-memory-author").value;
     if (!title || !content) {
         showLongTermMsg("error", "标题和完整内容不能为空");
         return;
@@ -1461,7 +1581,7 @@ async function saveLongTermMemory() {
             {
                 method: editing ? "PUT" : "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({title, keywords, content, diary_date}),
+                body: JSON.stringify({title, keywords, content, diary_date, author_role}),
             }
         );
         closeLongTermMemoryEditor();
@@ -1484,15 +1604,56 @@ async function deleteLongTermMemory(id) {
         const resp = await authFetch("/api/diaries/" + id, {method: "DELETE"});
         const data = await readJsonResponse(resp);
         if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        await loadLongTermMemory();
+        longTermMemories = longTermMemories.filter(memory => Number(memory.id) !== Number(id));
+        longTermSelectedIds.delete(Number(id));
+        standingOverview.diary_count = Math.max(0, (Number(standingOverview.diary_count) || 0) - 1);
+        diariesLoaded = true;
+        markDiariesDirty();
+        renderStandingStats();
+        renderLongTermMemories();
     } catch (e) {
         showLongTermMsg("error", "删除失败：" + e.message);
     }
 }
 
+async function generateSelectedDiaryKeywords() {
+    const ids = [...longTermSelectedIds];
+    if (!ids.length || longTermKeywordsGenerating || longTermBatchDeleting) return;
+    const hasKeywords = longTermMemories.some(memory => ids.includes(Number(memory.id))
+        && normalizeLongTermKeywords(memory.keywords).length);
+    if (hasKeywords && !confirm("所选日记已有的关键词将被重新生成，是否继续？")) return;
+    longTermKeywordsGenerating = true;
+    let succeeded = 0;
+    const failures = [];
+    try {
+        for (const [index, id] of ids.entries()) {
+            longTermKeywordsProgress = "生成中 " + (index + 1) + "/" + ids.length + "…";
+            updateLongTermSelectionControls();
+            try {
+                const response = await authFetch("/api/diaries/" + id + "/generate-keywords", {method: "POST"});
+                const data = await readJsonResponse(response);
+                if (!response.ok || data.error) throw new Error(data.error || "HTTP " + response.status);
+                const memory = longTermMemories.find(item => Number(item.id) === Number(id));
+                if (memory) memory.keywords = Array.isArray(data.keywords) ? data.keywords : [];
+                succeeded++;
+                longTermSelectedIds.delete(id);
+            } catch (error) {
+                failures.push("#" + id + "：" + error.message);
+            }
+        }
+        if (succeeded) markDiariesDirty();
+        renderLongTermMemories();
+        showLongTermMsg(failures.length ? "error" : "success",
+            "已为 " + succeeded + " 篇日记生成关键词" + (failures.length ? "；失败 " + failures.length + " 篇。" + failures.join("；") : ""));
+    } finally {
+        longTermKeywordsGenerating = false;
+        updateLongTermSelectionControls();
+    }
+}
+
 async function deleteSelectedLongTermMemories() {
     const ids = [...longTermSelectedIds].sort((left, right) => left - right);
-    if (!ids.length || longTermBatchDeleting) return;
+    if (!ids.length || longTermBatchDeleting || longTermKeywordsGenerating) return;
     if (!confirm("确定永久删除选中的 " + ids.length + " 篇日记？此操作无法撤销。")) return;
     longTermBatchDeleting = true;
     updateLongTermSelectionControls();
@@ -1505,9 +1666,14 @@ async function deleteSelectedLongTermMemories() {
         const data = await readJsonResponse(resp);
         if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
         const deleted = Number(data.deleted) || 0;
+        const deletedIds = new Set((data.deleted_ids || []).map(Number));
+        longTermMemories = longTermMemories.filter(memory => !deletedIds.has(Number(memory.id)));
         longTermSelectedIds.clear();
         longTermSelectionMode = false;
-        await Promise.all([loadLongTermMemory(), loadStandingMemory()]);
+        diariesLoaded = true;
+        markDiariesDirty();
+        renderLongTermMemories();
+        await loadStandingMemory();
         showLongTermMsg("success", "已删除 " + deleted + " 篇日记");
     } catch (e) {
         showLongTermMsg("error", "批量删除失败：" + e.message);
@@ -1519,6 +1685,8 @@ async function deleteSelectedLongTermMemories() {
 
 async function approveLongTermMemoryProposal(id) {
     const proposal = longTermPending.find(item => Number(item.id) === Number(id));
+    if (proposal && proposal.metadata && Array.isArray(proposal.metadata.merge_sources)
+        && !confirm("确认用这篇合并稿替换同一天的 " + proposal.metadata.merge_sources.length + " 篇原日记？原文会保存在合并日记中，可展开查看。")) return;
     if (proposal && proposal.operation === "delete"
         && !confirm("确定通过删除日记 #" + proposal.target_diary_id + " 的请求？")) {
         return;
@@ -1531,7 +1699,9 @@ async function approveLongTermMemoryProposal(id) {
         const data = await readJsonResponse(resp);
         if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
         showLongTermMsg("success", "请求已执行");
-        await Promise.all([loadLongTermMemory(), loadStandingMemory()]);
+        markDiariesDirty();
+        markDiaryPendingDirty();
+        await Promise.all([loadDiaries(), loadDiaryPending(), loadStandingMemory()]);
     } catch (e) {
         showLongTermMsg("error", "执行失败：" + e.message);
     }
@@ -1546,114 +1716,28 @@ async function rejectLongTermMemoryProposal(id) {
         );
         const data = await readJsonResponse(resp);
         if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        await Promise.all([loadLongTermMemory(), loadStandingMemory()]);
+        markDiaryPendingDirty();
+        await Promise.all([loadDiaryPending(), loadStandingMemory()]);
     } catch (e) {
         showLongTermMsg("error", "拒绝失败：" + e.message);
     }
 }
 
 function showLongTermMsg(type, text) {
-    const container = byId("long-term-summary-modal")?.classList.contains("open")
+    let container = byId("long-term-summary-modal")?.classList.contains("open")
         ? byId("long-term-summary-msg")
         : byId("long-term-memory-editor-modal")?.classList.contains("open")
             ? byId("long-term-memory-editor-msg") : byId("long-term-msg");
+    if (container === byId("long-term-msg") && byId("diary-notebook")?.classList.contains("open")
+        && byId("standing-view-long-term")?.hidden) {
+        container = byId("diary-notebook-msg");
+    }
     if (!container) return;
     container.innerHTML = '<div class="msg msg-' + escHtml(type) + '">' + escHtml(text) + '</div>';
     if (type !== "error") {
         setTimeout(() => {
             if (container.innerHTML.indexOf(escHtml(text)) !== -1) container.innerHTML = "";
         }, 3500);
-    }
-}
-
-function handlePromptPreviewToggle(event) {
-    if (event.currentTarget.open && !promptSplicePreview) loadPromptSplicePreview();
-}
-
-async function loadPromptSplicePreview() {
-    const statsEl = byId("prompt-splice-stats");
-    const sectionsEl = byId("prompt-splice-sections");
-    const copyBtn = byId("prompt-splice-copy");
-    if (statsEl) statsEl.textContent = "加载中...";
-    if (sectionsEl) sectionsEl.innerHTML = "";
-    if (copyBtn) copyBtn.disabled = true;
-    try {
-        const resp = await authFetch("/api/prompt/splice-preview");
-        const data = await readJsonResponse(resp);
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        promptSplicePreview = data;
-        renderPromptSplicePreview();
-    } catch (e) {
-        promptSplicePreview = null;
-        if (statsEl) statsEl.textContent = "加载失败：" + e.message;
-        if (sectionsEl) sectionsEl.textContent = "无法读取拼接预览";
-    }
-}
-
-function renderPromptSplicePreview() {
-    const preview = promptSplicePreview || {};
-    const content = String(preview.content || "");
-    const sectionsEl = byId("prompt-splice-sections");
-    const statsEl = byId("prompt-splice-stats");
-    const copyBtn = byId("prompt-splice-copy");
-    const noteEl = byId("prompt-splice-note");
-    const sections = Array.isArray(preview.sections) ? preview.sections : [];
-    if (sectionsEl) {
-        sectionsEl.innerHTML = sections.map((section, index) => (
-            '<details class="prompt-splice-section"' + (index === 0 ? " open" : "") + '>' +
-                '<summary><span>' + escHtml(section.title || section.id || "提示词") + '</span>' +
-                    '<small>' + (Number(section.character_count) || 0) + ' 字符</small></summary>' +
-                '<pre class="standing-overview-content">' + escHtml(section.content || "（空）") + '</pre>' +
-            '</details>'
-        )).join("");
-    }
-    if (statsEl) {
-        statsEl.textContent = sections.length + " 段 · " +
-            (Number(preview.character_count) || 0) + " 字符";
-    }
-    if (copyBtn) copyBtn.disabled = !content;
-    if (noteEl) noteEl.textContent = String(preview.dynamic_note || "");
-}
-
-async function copyPromptSplicePreview() {
-    const content = String((promptSplicePreview || {}).content || "");
-    if (!content) return;
-    try {
-        await navigator.clipboard.writeText(content);
-        if (byId("prompt-splice-stats")) byId("prompt-splice-stats").textContent = "已复制全部";
-    } catch (e) {
-        if (byId("prompt-splice-stats")) byId("prompt-splice-stats").textContent = "复制失败：" + e.message;
-    }
-}
-
-async function createLongTermDiaryDraft() {
-    const btn = byId("long-term-diary-btn");
-    if (!confirm("确定根据最近一次前端上下文写一篇日记？完成后会进入日记 Pending。")) {
-        return;
-    }
-    const oldHtml = btn ? btn.innerHTML : "";
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="standing-diary-spinner"></span><span>书写中...</span>';
-    }
-    showLongTermMsg("success", "书写中...");
-    try {
-        const resp = await authFetch("/api/diaries/draft", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({}),
-        });
-        const data = await resp.json();
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        showLongTermMsg("success", "日记已写好，进入日记 Pending " + (data.created || 0) + " 篇");
-        await loadLongTermMemory();
-    } catch (e) {
-        showLongTermMsg("error", "日记书写失败：" + e.message);
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = oldHtml;
-        }
     }
 }
 
@@ -1666,7 +1750,6 @@ function renderStandingLists() {
     const pendingSection = byId("standing-pending-section");
     const pendingCount = byId("standing-pending-count");
     const activeEl = byId("standing-active-list");
-    const activeCount = byId("standing-active-count");
     const flowWindow = standingOverview && standingOverview.flow_window
         ? standingOverview.flow_window : {};
     const flowMaxItems = Math.min(100, Math.max(1, Number(flowWindow.max_items) || 8));
@@ -1674,40 +1757,18 @@ function renderStandingLists() {
     const flowWindowLabel = flowWindow.state === "hard"
         ? "正在整理超出上限的摘要"
         : "当前 " + flowItemCount + " / " + flowMaxItems + " 条";
-    const flowWindowControl =
-        '<div class="flow-window-control">' +
-            '<span class="flow-window-status">' + escHtml(flowWindowLabel) + '</span>' +
-            '<label title="超过上限的最旧交接摘要会自动归档到日记">' +
-                '<span>保留最近</span>' +
-                '<input type="number" id="flowMemoryMaxItems" min="1" max="100" step="1" inputmode="numeric" value="' + flowMaxItems + '">' +
-                '<span>条</span>' +
-            '</label>' +
-            '<button type="button" onclick="saveFlowMemoryMaxItems(event)">保存</button>' +
-        '</div>';
-
     if (pendingCount) pendingCount.textContent = pending.length + " 条";
-    if (pendingSection) pendingSection.style.display = pending.length ? "" : "none";
-    if (pendingEl) {
-        pendingEl.innerHTML = pending.map(renderPendingStandingMemoryCard).join("");
-    }
-    if (activeCount) activeCount.textContent = fixed.length + " 条固定 · " + flow.length + " 条流动";
-    if (activeEl) {
-        const fixedHtml = fixed.length
-            ? fixed.map(block => renderKelivoMemoryCard(block, "fixed")).join("")
-            : '<div class="standing-empty">还没有固定记忆</div>';
-        const flowHtml = flow.length
-            ? flow.map(block => renderKelivoMemoryCard(block, "flow")).join("")
-            : '<div class="standing-empty">还没有会话摘要</div>';
-        activeEl.innerHTML =
-            '<section class="memory-zone memory-zone-fixed">' +
-                '<div class="memory-zone-head"><h3>固定区</h3><span>由你维护的稳定记忆</span></div>' +
-                fixedHtml +
-            '</section>' +
-            '<section class="memory-zone memory-zone-flow">' +
-                '<div class="memory-zone-head"><h3>流动区</h3>' + flowWindowControl + '</div>' +
-                flowHtml +
-            '</section>';
-    }
+    if (pendingSection) pendingSection.hidden = !pending.length;
+    if (pendingEl) pendingEl.innerHTML = pending.map(renderPendingStandingMemoryCard).join("");
+    if (activeEl) activeEl.innerHTML = renderMemoryShelf(fixed);
+    byId("archive-flow-count").textContent = flowWindowLabel;
+    const limit = byId("flowMemoryMaxItems");
+    limit.disabled = false;
+    limit.value = flowMaxItems;
+    byId("archive-flow-save").disabled = false;
+    byId("archive-flow-list").innerHTML = flow.length
+        ? flow.map(block => renderKelivoMemoryCard(block, "flow")).join("")
+        : '<p class="river-note" data-rise>还没有会话摘要</p>';
 }
 
 async function saveFlowMemoryMaxItems(event) {
@@ -1780,8 +1841,16 @@ function renderPendingStandingMemoryCard(block) {
         block.content,
         operation,
     );
+    const targetTitle = target ? String(target.title || target.content || "").split("\n")[0].slice(0, 80) : "";
+    const targetHtml = target
+        ? '<button type="button" class="btn btn-secondary btn-sm" onclick="openStandingMemoryEditor(' + targetId + ')">查看原记忆 #' + targetId + ' · ' + escHtml(targetTitle) + '</button>'
+        : (targetId ? '<span class="pending-diff-empty">原记忆 #' + targetId + ' 已不存在，请拒绝此提案</span>' : '');
+    const sourceIds = Array.isArray(metadata.source_diary_ids)
+        ? metadata.source_diary_ids.filter(value => Number.isSafeInteger(value) && value > 0) : [];
+    const sourceHtml = sourceIds.length > 0
+        ? '<div class="pending-diff-label">来源日记' + (sourceIds.length ? ' ' + sourceIds.map(value => '#' + value).join('、') : '') + '</div>' : '';
     return (
-        '<article class="pending-memory-card standing-pending-card">' +
+        '<article class="pending-memory-card standing-pending-card" data-standing-block-id="' + id + '">' +
             '<div class="pending-memory-head">' +
                 '<span class="standing-tag status">' + escHtml(operationLabel) + '</span>' +
                 '<div class="row-actions">' +
@@ -1789,21 +1858,15 @@ function renderPendingStandingMemoryCard(block) {
                     '<button type="button" class="btn btn-danger btn-sm" onclick="deleteStandingMemory(' + id + ', true)">拒绝</button>' +
                 '</div>' +
             '</div>' +
-            '<div class="pending-memory-diff">' + diffHtml + '</div>' +
+            '<div class="pending-memory-diff">' + targetHtml + sourceHtml + diffHtml + '</div>' +
         '</article>'
     );
 }
 
-function renderKelivoMemoryCard(block, zone) {
+function renderKelivoMemoryCard(block, zone, number = "") {
     const id = Number(block.id);
     const enteredOn = String(block.created_at || "").slice(0, 10);
-    const timelineMeta = zone === "flow"
-        ? '<div class="kelivo-memory-timeline-meta"><strong>' +
-            escHtml(block.title || "会话摘要") + '</strong><time>' +
-            escHtml(enteredOn ? "进入流动区：" + enteredOn : "") + '</time></div>'
-        : "";
-
-    // 流动记忆可整理成日记
+    const title = zone === "flow" ? escHtml(block.title || "会话摘要") : "";
     const promoteButton = zone === "flow"
         ? '<button type="button" class="kelivo-icon-btn promote" data-promote-id="' + id + '" aria-label="归档到日记" title="归档到日记" onclick="promoteFlowMemoryToLongTerm(' + id + ')">' +
             '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
@@ -1811,26 +1874,16 @@ function renderKelivoMemoryCard(block, zone) {
             '</svg>' +
           '</button>'
         : "";
-
-    return (
-        '<article class="kelivo-memory-card" data-standing-block-id="' + id + '">' +
-            timelineMeta +
-            '<div class="kelivo-memory-content">' + escHtml(block.content || "") + '</div>' +
-            '<div class="kelivo-memory-actions">' +
-                promoteButton +
-                '<button type="button" class="kelivo-icon-btn edit" aria-label="编辑记忆" title="编辑" onclick="openStandingMemoryEditor(' + id + ')">' +
-                    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-                        '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>' +
-                    '</svg>' +
-                '</button>' +
-                '<button type="button" class="kelivo-icon-btn delete" aria-label="删除记忆" title="删除" onclick="deleteStandingMemory(' + id + ')">' +
-                    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-                        '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/>' +
-                    '</svg>' +
-                '</button>' +
-            '</div>' +
-        '</article>'
-    );
+    return `<article class="stand" data-standing-block-id="${id}">
+        <i class="ctop" data-rule></i><i class="pin" data-node></i>
+        <span class="no">${zone === "flow" ? escHtml(enteredOn) : escHtml(number)}</span>
+        <button class="read" type="button" aria-label="编辑记忆" onclick="openStandingMemoryEditor(${id})">
+            ${title ? `<strong>${title}</strong>` : ""}<p>${escHtml(block.content || "")}</p>
+        </button>
+        <div class="standing-actions">${promoteButton}
+            <button type="button" onclick="deleteStandingMemory(${id})">删除</button>
+        </div>
+    </article>`;
 }
 
 function sortStandingSiblings(blocks) {
@@ -1847,6 +1900,17 @@ function compareStandingBlocks(a, b) {
 function initMemoryEditor() {
     const textarea = byId("memory-editor-content");
     if (!textarea) return;
+    byId("memory-editor-modal").addEventListener("pointerdown", event => {
+        // Keep keyboard layout stable until the button's click has completed.
+        if (document.activeElement === textarea && event.target.closest("button")) event.preventDefault();
+    });
+    textarea.addEventListener("input", scheduleMemoryCaret);
+    window.visualViewport?.addEventListener("resize", scheduleMemoryCaret);
+    window.addEventListener("resize", scheduleMemoryCaret);
+    for (const type of ["pointerdown", "wheel"]) textarea.addEventListener(type, () => {
+        cancelAnimationFrame(memoryCaretFrame);
+        memoryCaretFrame = 0;
+    }, {passive: true});
     textarea.addEventListener("keydown", event => {
         if (event.key === "Escape") {
             closeStandingMemoryEditor();
@@ -1857,6 +1921,37 @@ function initMemoryEditor() {
             saveStandingMemory();
         }
     });
+}
+
+let memoryCaretFrame = 0;
+function scheduleMemoryCaret() {
+    cancelAnimationFrame(memoryCaretFrame);
+    // The shared viewport owner resizes the shell first, then measure its textarea.
+    memoryCaretFrame = requestAnimationFrame(() => {
+        memoryCaretFrame = requestAnimationFrame(keepMemoryCaretVisible);
+    });
+}
+
+function keepMemoryCaretVisible() {
+    memoryCaretFrame = 0;
+    const textarea = byId("memory-editor-content");
+    if (!textarea || textarea.readOnly || document.activeElement !== textarea) return;
+    const style = getComputedStyle(textarea);
+    const mirror = document.createElement("div");
+    mirror.style.cssText = "position:fixed;left:-10000px;top:0;visibility:hidden;white-space:pre-wrap;overflow-wrap:break-word;";
+    for (const key of ["font", "lineHeight", "letterSpacing", "padding", "border", "boxSizing", "wordBreak", "tabSize"]) mirror.style[key] = style[key];
+    mirror.style.width = textarea.clientWidth + "px";
+    mirror.textContent = textarea.value.slice(0, textarea.selectionEnd);
+    const caret = document.createElement("span");
+    caret.textContent = textarea.value.slice(textarea.selectionEnd) || "\u200b";
+    mirror.append(caret);
+    document.body.append(mirror);
+    const top = caret.offsetTop, line = parseFloat(style.lineHeight) || 26;
+    if (top < textarea.scrollTop + 8) textarea.scrollTop = Math.max(0, top - 8);
+    else if (top + line > textarea.scrollTop + textarea.clientHeight - 8) {
+        textarea.scrollTop = top + line - textarea.clientHeight + 8;
+    }
+    mirror.remove();
 }
 
 function openStandingMemoryEditor(id) {
@@ -1873,10 +1968,12 @@ function openStandingMemoryEditor(id) {
     modal.classList.add("open");
     modal.setAttribute("aria-hidden", "false");
     document.body.classList.add("memory-editor-open");
-    requestAnimationFrame(() => textarea.focus());
+    requestAnimationFrame(() => textarea.focus({preventScroll: true}));
 }
 
 function closeStandingMemoryEditor() {
+    cancelAnimationFrame(memoryCaretFrame);
+    memoryCaretFrame = 0;
     if (byId("memory-editor-msg")) byId("memory-editor-msg").textContent = "";
     const modal = byId("memory-editor-modal");
     const textarea = byId("memory-editor-content");
@@ -1884,7 +1981,7 @@ function closeStandingMemoryEditor() {
         modal.classList.remove("open");
         modal.setAttribute("aria-hidden", "true");
     }
-    if (textarea) textarea.value = "";
+    if (textarea) { textarea.blur(); textarea.value = ""; }
     document.body.classList.remove("memory-editor-open");
     standingEditingId = null;
 }
@@ -1892,7 +1989,6 @@ function closeStandingMemoryEditor() {
 async function saveStandingMemory() {
     const editId = standingEditingId;
     const isEdit = Number.isFinite(Number(editId)) && Number(editId) > 0;
-    const block = isEdit ? standingBlocks.find(b => Number(b.id) === Number(editId)) : null;
     const content = (byId("memory-editor-content") || {}).value || "";
     if (!content.trim()) {
         showStandingMsg("error", "记忆内容不能为空");
@@ -1900,7 +1996,7 @@ async function saveStandingMemory() {
     }
     const generatedTitle = content.trim().split(/\r?\n/)[0].slice(0, 80) || "Memory";
     const payload = isEdit
-        ? {title: (block && block.title) || generatedTitle, content}
+        ? {content}
         : {
             title: generatedTitle,
             content,
@@ -1920,19 +2016,33 @@ async function saveStandingMemory() {
         saveButton.disabled = true;
         saveButton.textContent = "保存中…";
     }
+    let data;
     try {
-        const data = await saveDashboardJson("/api/standing-memory" + (isEdit ? "/" + editId : ""), {
+        data = await saveDashboardJson("/api/standing-memory" + (isEdit ? "/" + editId : ""), {
             method: isEdit ? "PUT" : "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify(payload),
         });
-        ++standingLoadGeneration;
-        const index = standingBlocks.findIndex(item => Number(item.id) === Number(data.block.id));
-        if (index < 0) standingBlocks.push(data.block);
-        else standingBlocks[index] = data.block;
-        promptSplicePreview = null;
-        closeStandingMemoryEditor();
-        showStandingMsg("success", "已保存");
+        if (!data.block || !Number.isFinite(Number(data.block.id))) {
+            throw new Error("服务器未返回保存后的记忆");
+        }
+    } catch (e) {
+        showStandingMsg("error", "保存失败：" + e.message);
+        return;
+    } finally {
+        if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.textContent = "保存";
+        }
+    }
+
+    ++standingLoadGeneration;
+    const index = standingBlocks.findIndex(item => Number(item.id) === Number(data.block.id));
+    if (index < 0) standingBlocks.push(data.block);
+    else standingBlocks[index] = data.block;
+    closeStandingMemoryEditor();
+    let renderFailed = false;
+    try {
         renderStandingStats();
         const card = document.querySelector(`[data-standing-block-id="${Number(data.block.id)}"]`);
         if (isEdit && card && data.block.status === "active") {
@@ -1941,13 +2051,10 @@ async function saveStandingMemory() {
             renderStandingLists();
         }
     } catch (e) {
-        showStandingMsg("error", "保存失败：" + e.message);
-    } finally {
-        if (saveButton) {
-            saveButton.disabled = false;
-            saveButton.textContent = "保存";
-        }
+        renderFailed = true;
+        console.error("常驻记忆已保存，但列表刷新失败：", e);
     }
+    showStandingMsg("success", renderFailed ? "已保存，请刷新页面查看最新内容" : "已保存");
 }
 
 function nextStandingSortOrder(parentId, status) {
@@ -1959,38 +2066,79 @@ function nextStandingSortOrder(parentId, status) {
     return Math.max(...siblings.map(block => Number.isFinite(Number(block.sort_order)) ? Number(block.sort_order) : 0)) + 10;
 }
 
-async function approveStandingMemory(id) {
-    const block = standingBlocks.find(item => Number(item.id) === Number(id));
-    const metadata = normalizeStandingMetadata(block && block.metadata);
-    if (metadata.pending_operation === "delete"
-        && !confirm("确定通过删除记忆 #" + metadata.target_block_id + " 的请求？")) {
-        return;
+function setStandingMutationBusy(id, busy) {
+    document.querySelectorAll(`[data-standing-block-id="${Number(id)}"] button`).forEach(button => {
+        button.disabled = busy;
+    });
+}
+
+function applyStandingMutation(removedIds, updatedBlock = null) {
+    ++standingLoadGeneration; // Ignore list reads started before this mutation completed.
+    const removed = new Set(removedIds.map(Number));
+    standingBlocks = standingBlocks.filter(block => !removed.has(Number(block.id)));
+    // Only deleted blocks reparent children; edits keep the existing hierarchy.
+    if (updatedBlock) removed.delete(Number(updatedBlock.id));
+    standingBlocks.forEach(block => {
+        if (block.parent_id != null && removed.has(Number(block.parent_id))) block.parent_id = null;
+    });
+    if (updatedBlock) standingBlocks.push(updatedBlock);
+    if (standingOverview.flow_window) {
+        standingOverview.flow_window.item_count = standingBlocks.filter(
+            block => block.status === "active" && block.layer === "recent"
+        ).length;
     }
     try {
-        const resp = await authFetch("/api/standing-memory/" + id + "/approve", {
-            method: "POST"
-        });
-        const data = await readJsonResponse(resp);
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        showStandingMsg("success", "请求已执行");
-        await loadStandingMemory();
+        renderStandingStats();
+        renderStandingLists();
+        standingMutationIds.forEach(id => setStandingMutationBusy(id, true));
+        return true;
+    } catch (error) {
+        console.error("记忆操作已完成，但列表刷新失败：", error);
+        return false;
+    }
+}
+
+async function approveStandingMemory(id) {
+    id = Number(id);
+    if (standingMutationIds.has(id)) return;
+    const block = standingBlocks.find(item => Number(item.id) === id);
+    const metadata = normalizeStandingMetadata(block && block.metadata);
+    if (metadata.pending_operation === "delete"
+        && !confirm("确定通过删除记忆 #" + metadata.target_block_id + " 的请求？")) return;
+    standingMutationIds.add(id);
+    setStandingMutationBusy(id, true);
+    showStandingMsg("info", "正在执行…");
+    try {
+        const data = await saveDashboardJson("/api/standing-memory/" + id + "/approve", {method: "POST"});
+        if (!data.block || !Number.isFinite(Number(data.block.id))) throw new Error("服务器未返回处理后的记忆");
+        const rendered = applyStandingMutation([id, data.block.id], data.operation === "delete" ? null : data.block);
+        showStandingMsg("success", rendered ? "请求已执行" : "请求已执行，请刷新页面查看最新内容");
     } catch (e) {
         showStandingMsg("error", "执行失败：" + e.message);
+    } finally {
+        standingMutationIds.delete(id);
+        setStandingMutationBusy(id, false);
     }
 }
 
 async function deleteStandingMemory(id, rejectingPending = false) {
-    const message = rejectingPending
-        ? "确定拒绝这个 pending 请求？"
-        : "确定删除记忆 #" + id + "？";
+    id = Number(id);
+    if (standingMutationIds.has(id)) return;
+    const message = rejectingPending ? "确定拒绝这个 pending 请求？" : "确定删除记忆 #" + id + "？";
     if (!confirm(message)) return;
+    standingMutationIds.add(id);
+    setStandingMutationBusy(id, true);
+    showStandingMsg("info", "正在删除…");
     try {
-        const resp = await authFetch("/api/standing-memory/" + id, {method: "DELETE"});
-        const data = await resp.json();
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        await loadStandingMemory();
+        await saveDashboardJson("/api/standing-memory/" + id, {method: "DELETE"});
+        const rendered = applyStandingMutation([id]);
+        const success = rejectingPending ? "已拒绝" : "已删除";
+        showStandingMsg("success", rendered ? success : success + "，请刷新页面查看最新内容");
     } catch (e) {
         showStandingMsg("error", "删除失败：" + e.message);
+    } finally {
+        standingMutationIds.delete(id);
+        setStandingMutationBusy(id, false);
     }
 }
 
@@ -2018,6 +2166,7 @@ async function promoteFlowMemoryToLongTerm(id) {
         await loadStandingMemory();
 
         // 如果当前在日记视图，也刷新它
+        markDiariesDirty();
         if (byId("standing-view-long-term").classList.contains("active")) {
             await loadLongTermMemory();
         }
@@ -2044,97 +2193,345 @@ function showStandingMsg(type, text) {
 // ============================================
 // Heartbeat activity
 // ============================================
-async function loadAnthropicCredential() {
-    const note = byId("anthropic-credential-note");
-    const deleteButton = byId("anthropic-credential-delete");
-    try {
-        const resp = await authFetch("/api/anthropic-credential");
-        const data = await readJsonResponse(resp);
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        if (data.source === "database") {
-            if (note) note.textContent = "Dashboard Key 已保存 · 重启后继续有效";
-        } else if (data.source === "environment") {
-            if (note) note.textContent = "正在使用环境变量 API_KEY";
-        } else {
-            if (note) note.textContent = "未配置";
+let apiConfigurationGeneration = 0, apiConfigurationKeySource = null;
+let apiConfigurationPresets = [];
+let apiConfigurationSuppliers = [], apiConfigurationSupplierSource = null;
+let apiModelsGeneration = 0;
+function resetApiModels() {
+    ++apiModelsGeneration;
+    byId("route-model-picker").hidden = true;
+    byId("routeModels").replaceChildren();
+    byId("route-models-msg").textContent = "";
+    byId("route-fetch-models").disabled = false;
+}
+const routeThinkingLevels = ['auto','low','medium','high','max'];
+function syncRouteThinking() {
+    const label=['Auto','Low','Medium','High','Max'][Number(byId('routeThinking').value)];
+    byId('route-thinking-value').textContent=label;
+    const slider = byId('routeThinking');
+    const step = Number(slider.value);
+    slider.parentElement.style.setProperty('--thinking-fill', `calc(12px + (100% - 24px) * ${step / 4})`);
+    slider.parentElement.querySelectorAll('.route-thinking-dots i').forEach((dot, index) => {
+        dot.classList.toggle('is-active', index <= step);
+    });
+    byId('routeThinking').setAttribute('aria-valuetext',label);
+}
+function apiConfigurationDraft() {
+    return {thinking_effort:routeThinkingLevels[Number(byId("routeThinking").value)], provider:byId("routeProvider").value, api_url:byId("routeApiUrl").value.trim(),
+        api_key:byId("routeApiKey").value.trim(), model:byId("routeModel").value.trim(),
+        ...(apiConfigurationKeySource == null ? {} : {source_preset_id:apiConfigurationKeySource}),
+        ...(apiConfigurationSupplierSource || {})};
+}
+function fillApiConfiguration(config) {
+    byId('routeThinking').value=Math.max(0,routeThinkingLevels.indexOf(config.thinking_effort || 'auto'));
+    syncRouteThinking();
+    apiConfigurationSupplierSource = null;
+    byId("routeSupplier").value = "";
+    byId("routeProvider").value = config.provider || "auto";
+    byId("routeApiUrl").value = config.api_url || "";
+    byId("routeModel").value = config.model || "";
+    byId("routeApiKey").value = "";
+    byId("routeApiKey").placeholder = config.api_key_configured
+        ? "已保存 " + config.api_key_hint : "填写密钥";
+    resetApiModels();
+}
+async function loadApiConfigurationSuppliers(generation) {
+    const groups = await Promise.all(["openai", "anthropic"].map(async provider => {
+        const data = await saveDashboardJson("/api/" + provider + "-providers");
+        return {provider, profiles:data.profiles || []};
+    }));
+    if (generation !== apiConfigurationGeneration) return;
+    apiConfigurationSuppliers = [];
+    const select = byId("routeSupplier");
+    select.replaceChildren(new Option("当前配置 / 手动填写", ""));
+    for (const {provider, profiles} of groups) {
+        if (!profiles.length) continue;
+        const group = document.createElement("optgroup");
+        group.label = provider === "openai" ? "OpenAI 兼容" : "Anthropic";
+        for (const profile of profiles) {
+            const value = provider + ":" + profile.id;
+            apiConfigurationSuppliers.push({...profile, provider, value});
+            group.append(new Option(profile.name, value));
         }
-        if (deleteButton) deleteButton.disabled = !data.stored_in_dashboard;
+        select.append(group);
+    }
+}
+function selectApiConfigurationSupplier(value) {
+    const supplier = apiConfigurationSuppliers.find(item => item.value === value);
+    apiConfigurationKeySource = null;
+    apiConfigurationSupplierSource = supplier ? {source_provider_type:supplier.provider, source_provider_id:supplier.id} : null;
+    if (supplier) {
+        byId("routeProvider").value = supplier.provider;
+        byId("routeApiUrl").value = supplier.api_url;
+        byId("routeApiKey").value = "";
+        byId("routeApiKey").placeholder = supplier.api_key_configured ? "已保存 " + supplier.api_key_hint : "填写密钥";
+    } else {
+        byId("routeApiKey").placeholder = "留空保留当前密钥";
+    }
+    resetApiModels();
+}
+async function loadRouteSettings(fillForm = true) {
+    const generation = fillForm ? ++apiConfigurationGeneration : null;
+    try {
+        const data = await saveDashboardJson("/api/route-settings");
+        byId("settings-route-label").textContent = [data.provider, data.model].filter(Boolean).join(" · ");
+        if (!fillForm || generation !== apiConfigurationGeneration) return;
+        apiConfigurationKeySource = null;
+        fillApiConfiguration(data);
+        byId("route-settings-note").textContent = "";
+        await Promise.all([loadApiConfigurationPresets(), loadApiConfigurationSuppliers(generation)]);
     } catch (e) {
-        if (note) note.textContent = "加载失败：" + e.message;
-        if (deleteButton) deleteButton.disabled = true;
+        if (fillForm && generation === apiConfigurationGeneration) byId("route-settings-note").textContent = "加载失败：" + e.message;
+    }
+}
+async function persistApiConfiguration(config) {
+    await saveDashboardJson("/api/route-settings", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)});
+    byId("conversation-detail-frame")?.contentWindow?.postMessage({type:"ash-chat-configuration-changed"},location.origin);
+}
+async function saveRouteSettings() {
+    const msg = byId("route-settings-msg"), button = byId("api-configuration-form").querySelector('[type="submit"]');
+    button.disabled = true; msg.textContent = "保存中…";
+    try {
+        await persistApiConfiguration(apiConfigurationDraft());
+        await loadRouteSettings(); msg.textContent = "设置已保存";
+    } catch (e) { msg.textContent = "保存失败：" + e.message; }
+    finally { button.disabled = false; }
+}
+async function loadApiConfigurationPresets() {
+    const data = await saveDashboardJson("/api/api-presets");
+    apiConfigurationPresets = data.presets || [];
+    const list = byId("api-preset-list"); list.replaceChildren();
+    if (!apiConfigurationPresets.length) { list.textContent = "还没有保存的配置"; return; }
+    for (const preset of apiConfigurationPresets) {
+        const row = document.createElement("div"); row.className = "api-preset-row";
+        const load = document.createElement("button"); load.type = "button"; load.className = "api-preset-fill";
+        const name = document.createElement("strong"); name.textContent = preset.name;
+        const detail = document.createElement("small"); detail.textContent = preset.provider + " · " + preset.model;
+        load.append(name,detail); load.setAttribute("aria-label", "填入预设 " + preset.name);
+        load.onclick = () => {
+            ++apiConfigurationGeneration; apiConfigurationKeySource = preset.id;
+            fillApiConfiguration(preset); byId("api-preset-name").value = preset.name;
+            byId("route-settings-note").textContent = "";
+            byId("route-settings-msg").textContent = "已填入「" + preset.name + "」，点击保存设置后生效";
+            byId("api-configuration-form").scrollIntoView({block:"start"});
+        };
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "btn btn-danger"; remove.textContent = "删除";
+        remove.setAttribute("aria-label", "删除预设 " + preset.name);
+        remove.onclick = async () => {
+            remove.disabled = true;
+            try {
+                await saveDashboardJson("/api/api-presets/" + preset.id, {method:"DELETE"});
+                if (apiConfigurationKeySource === preset.id) { byId("routeApiKey").placeholder = "预设已删除，请填写密钥或重新加载当前设置"; }
+                await loadApiConfigurationPresets();
+            } catch (error) { byId("route-settings-msg").textContent = error.message; remove.disabled = false; }
+        };
+        row.append(load,remove); list.append(row);
+    }
+}
+async function saveApiConfigurationPreset() {
+    const name = byId("api-preset-name").value.trim(); if (!name) return;
+    const button = byId("api-preset-form").querySelector('[type="submit"]'); button.disabled = true;
+    try {
+        const data = await saveDashboardJson("/api/api-presets", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name,...apiConfigurationDraft()})});
+        apiConfigurationKeySource = data.preset.id;
+        fillApiConfiguration(data.preset); await loadApiConfigurationPresets();
+        byId("route-settings-msg").textContent = "预设已保存，当前使用的设置未改变";
+    } catch (error) { byId("route-settings-msg").textContent = "预设保存失败：" + error.message; }
+    finally { button.disabled = false; }
+}
+document.addEventListener("DOMContentLoaded",()=>{
+    for (const id of ["routeProvider", "routeApiUrl", "routeApiKey"]) {
+        byId(id).addEventListener("input", resetApiModels);
+    }
+    byId("routeModel").addEventListener("input", () => {
+        if (byId("route-fetch-models").disabled) resetApiModels();
+        byId("routeModels").value = byId("routeModel").value.trim();
+    });
+    byId("routeModels").onchange = event => {
+        if (event.target.value) byId("routeModel").value = event.target.value;
+    };
+    byId("route-fetch-models").onclick = async event => {
+        resetApiModels();
+        const generation = apiModelsGeneration, msg = byId("route-models-msg");
+        const button = event.currentTarget; button.disabled = true;
+        msg.textContent = "正在拉取模型…";
+        try {
+            const data = await saveDashboardJson("/api/api-presets/models", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(apiConfigurationDraft())});
+            if (generation !== apiModelsGeneration) return;
+            const models = (data.data || []).map(item=>new Option(item.id,item.id));
+            const picker = byId("routeModels");
+            picker.replaceChildren(new Option("请选择模型", ""), ...models);
+            picker.value = models.some(option => option.value === byId("routeModel").value.trim()) ? byId("routeModel").value.trim() : "";
+            byId("route-model-picker").hidden = !models.length;
+            msg.textContent = models.length ? "已拉取 " + models.length + " 个模型，可从列表选择或手动填写模型 ID" : "接口返回了空模型列表，可手动填写模型 ID";
+        } catch (error) {
+            if (generation === apiModelsGeneration) msg.textContent = "拉取失败：" + error.message;
+        } finally {
+            if (generation === apiModelsGeneration) button.disabled = false;
+        }
+    };
+});
+
+let identityPresetNameRequest = 0;
+
+function renderIdentityPresetNames(data) {
+    document.querySelectorAll('[data-preset-name]').forEach(node => {
+        const role = node.dataset.presetName;
+        node.textContent = String(data[role + '_name'] || '').trim() || (role === 'user' ? '用户' : '助手');
+    });
+}
+
+async function refreshIdentityPresetNames() {
+    const request = ++identityPresetNameRequest;
+    try {
+        const response = await authFetch('/api/identity-presets');
+        const data = await readJsonResponse(response);
+        if (!response.ok || data.error) return;
+        if (request === identityPresetNameRequest) renderIdentityPresetNames(data);
+    } catch (_) {
+        // Retain the last server name, or the neutral label before the first load.
     }
 }
 
-async function saveAnthropicCredential() {
-    const input = byId("anthropicCredentialKey");
-    const msg = byId("anthropic-credential-msg");
-    const apiKey = input ? input.value.trim() : "";
-    if (!apiKey) {
-        if (msg) msg.textContent = "请先填写 Key";
+async function loadIdentityPresets() {
+    const nameRequest = ++identityPresetNameRequest;
+    const avatarSnapshot = typeof identityAvatarSnapshot === "function" ? identityAvatarSnapshot() : null;
+    const note = byId("identity-presets-note");
+    const msg = byId("identity-presets-msg");
+    try {
+        const resp = await authFetch("/api/identity-presets");
+        const data = await readJsonResponse(resp);
+        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
+        if (nameRequest === identityPresetNameRequest) renderIdentityPresetNames(data);
+        byId("identityUserName").value = data.user_name || "";
+        byId("identityAssistantName").value = data.assistant_name || "";
+        if (typeof applyIdentityAvatars === "function") applyIdentityAvatars(data, avatarSnapshot);
+        if (note) note.textContent = "";
+        if (msg) msg.textContent = "";
+    } catch (e) {
+        if (note) note.textContent = "加载失败";
+        if (msg) msg.textContent = "加载失败：" + e.message;
+    }
+}
+
+async function saveIdentityPresets() {
+    const msg = byId("identity-presets-msg");
+    const payload = {
+        user_name: byId("identityUserName").value.trim(),
+        assistant_name: byId("identityAssistantName").value.trim(),
+    };
+    if (Boolean(payload.user_name) !== Boolean(payload.assistant_name)) {
+        if (msg) msg.textContent = "请同时填写两个名字，或同时留空以关闭人物预设";
         return;
     }
     if (msg) msg.textContent = "保存中…";
+    ++identityPresetNameRequest;
     try {
-        await saveDashboardJson("/api/anthropic-credential", {
+        await saveDashboardJson("/api/identity-presets", {
             method: "PUT",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({api_key: apiKey}),
+            body: JSON.stringify(payload),
         });
-        if (input) input.value = "";
-        if (msg) msg.textContent = "Key 已保存";
-        await loadAnthropicCredential();
+        await loadIdentityPresets();
+        if (msg) msg.textContent = payload.user_name ? "人物预设已保存" : "人物预设已关闭";
     } catch (e) {
-        if (input) input.value = "";
         if (msg) msg.textContent = "保存失败：" + e.message;
     }
 }
 
-async function deleteAnthropicCredential() {
-    if (!confirm("确定从数据库删除 Anthropic 路由 Key？正在进行的请求可能仍会完成。")) return;
-    const msg = byId("anthropic-credential-msg");
-    if (msg) msg.textContent = "删除中…";
+function toggleAnthropicProviderCreator(forceOpen) {
+    const form = byId("anthropic-provider-create");
+    if (!form) return;
+    const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : form.hidden;
+    form.hidden = !shouldOpen;
+    if (shouldOpen) byId("anthropicProviderName")?.focus();
+}
+
+function renderAnthropicProviders() {
+    renderSettingsProviders("anthropic", anthropicProviderProfiles);
+}
+
+async function loadAnthropicProviders() {
+    const note = byId("anthropic-provider-note");
     try {
-        const resp = await authFetch("/api/anthropic-credential", {method: "DELETE"});
+        const resp = await authFetch("/api/anthropic-providers");
         const data = await readJsonResponse(resp);
         if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        if (msg) msg.textContent = data.source === "environment"
-            ? "Dashboard Key 已删除，但环境变量 API_KEY 仍在生效"
-            : "Key 已删除";
-        await loadAnthropicCredential();
+        anthropicProviderProfiles = Array.isArray(data.profiles) ? data.profiles : [];
+        renderAnthropicProviders();
+        if (note) note.textContent = data.effective?.name || "环境变量";
     } catch (e) {
-        if (msg) msg.textContent = "删除失败：" + e.message;
+        if (note) note.textContent = "加载失败";
+        showAnthropicProviderMsg("加载失败：" + e.message);
     }
 }
 
-async function loadRouteSettings() {
-    const note = byId("route-settings-note");
+function showAnthropicProviderMsg(text) {
+    const msg = byId("anthropic-provider-msg");
+    if (!msg) return;
+    msg.textContent = text || "";
+}
+
+async function createAnthropicProvider() {
+    const payload = {
+        name: byId("anthropicProviderName").value.trim(),
+        api_url: byId("anthropicProviderUrl").value.trim(),
+        api_key: byId("anthropicProviderKey").value.trim(),
+        is_active: Boolean(byId("anthropicProviderActive").checked),
+    };
+    showAnthropicProviderMsg("保存中...");
     try {
-        const resp = await authFetch("/api/route-settings");
-        const data = await readJsonResponse(resp);
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        byId("routeProvider").value = data.provider || "auto";
-        if (note) note.textContent = "当前 " + (data.provider || "auto");
+        await saveDashboardJson("/api/anthropic-providers", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload),
+        });
+        byId("anthropicProviderName").value = "";
+        byId("anthropicProviderUrl").value = "";
+        byId("anthropicProviderKey").value = "";
+        byId("anthropicProviderActive").checked = false;
+        toggleAnthropicProviderCreator(false);
+        showAnthropicProviderMsg("");
+        await loadAnthropicProviders();
     } catch (e) {
-        if (note) note.textContent = "加载失败：" + e.message;
+        showAnthropicProviderMsg("保存失败：" + e.message);
     }
 }
 
-async function saveRouteSettings() {
-    const msg = byId("route-settings-msg");
-    if (msg) msg.textContent = "保存中...";
+async function saveAnthropicProvider(id) {
+    const payload = {
+        name: byId("anthropicProviderName-" + id).value.trim(),
+        api_url: byId("anthropicProviderUrl-" + id).value.trim(),
+        api_key: byId("anthropicProviderKey-" + id).value.trim(),
+        is_active: Boolean(byId("anthropicProviderActive-" + id).checked),
+    };
+    showAnthropicProviderMsg("保存中...");
     try {
-        await saveDashboardJson("/api/route-settings", {
+        await saveDashboardJson("/api/anthropic-providers/" + id, {
             method: "PUT",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({provider: byId("routeProvider").value}),
+            body: JSON.stringify(payload),
         });
-        if (msg) msg.textContent = "已保存";
-        await loadRouteSettings();
-        setTimeout(() => { if (msg && msg.textContent === "已保存") msg.textContent = ""; }, 3000);
+        showAnthropicProviderMsg("");
+        await loadAnthropicProviders();
     } catch (e) {
-        if (msg) msg.textContent = "保存失败：" + e.message;
+        showAnthropicProviderMsg("保存失败：" + e.message);
     }
 }
+
+async function deleteAnthropicProvider(id) {
+    if (!confirm("删除这个供应商？")) return;
+    try {
+        const resp = await authFetch("/api/anthropic-providers/" + id, {method: "DELETE"});
+        const data = await readJsonResponse(resp);
+        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
+        showAnthropicProviderMsg("");
+        await loadAnthropicProviders();
+    } catch (e) {
+        showAnthropicProviderMsg("删除失败：" + e.message);
+    }
+}
+
 
 function toggleOpenAiProviderCreator(forceOpen) {
     const form = byId("openai-provider-create");
@@ -2145,58 +2542,7 @@ function toggleOpenAiProviderCreator(forceOpen) {
 }
 
 function renderOpenAiProviders() {
-    const container = byId("openai-provider-list");
-    if (!container) return;
-    if (!openAiProviderProfiles.length) {
-        container.innerHTML = '<div class="openai-provider-empty">暂无预设</div>';
-        return;
-    }
-    container.innerHTML = openAiProviderProfiles.map(profile => {
-        const id = Number(profile.id);
-        const active = Boolean(profile.is_active);
-        return `
-            <details class="openai-provider-item${active ? " is-active" : ""}" data-provider-id="${id}">
-                <summary>
-                    <span class="provider-status-dot"></span>
-                    <span class="provider-summary-name">${escHtml(profile.name)}</span>
-                    ${active ? '<span class="provider-active-mark">活跃</span>' : ""}
-                    <svg class="provider-summary-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                        <path d="m6 9 6 6 6-6"/>
-                    </svg>
-                </summary>
-                <div class="provider-editor">
-                    <div class="provider-form-grid">
-                        <label class="heartbeat-setting-field">
-                            <span>名称</span>
-                            <input type="text" id="openaiProviderName-${id}" class="control-input" maxlength="80" value="${escHtml(profile.name)}" autocomplete="off">
-                        </label>
-                        <label class="heartbeat-setting-field provider-url-field">
-                            <span>API URL</span>
-                            <input type="url" id="openaiProviderUrl-${id}" class="control-input" value="${escHtml(profile.api_url)}" placeholder="https://openrouter.ai/api/v1" autocomplete="url">
-                        </label>
-                        <label class="heartbeat-setting-field">
-                            <span>API Key</span>
-                            <input type="password" id="openaiProviderKey-${id}" class="control-input" placeholder="${escHtml(profile.api_key_hint || "")}" autocomplete="new-password">
-                        </label>
-                    </div>
-                    <div class="provider-form-actions">
-                        <label class="provider-active-choice">
-                            <input type="checkbox" id="openaiProviderActive-${id}" ${active ? "checked" : ""}>
-                            <span>活跃</span>
-                        </label>
-                        <div>
-                            <button type="button" class="provider-delete-button" onclick="deleteOpenAiProvider(${id})" title="删除" aria-label="删除">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-                                    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/>
-                                </svg>
-                            </button>
-                            <button type="button" class="btn btn-primary" onclick="saveOpenAiProvider(${id})">保存</button>
-                        </div>
-                    </div>
-                </div>
-            </details>
-        `;
-    }).join("");
+    renderSettingsProviders("openai", openAiProviderProfiles);
 }
 
 function renderHistoryTitleProviders() {
@@ -2204,7 +2550,7 @@ function renderHistoryTitleProviders() {
     if (!select) return;
     const selected = select.dataset.selectedProviderId || "";
     const legacyConfigured = select.dataset.legacyConfigured === "true";
-    const firstLabel = legacyConfigured && !selected ? "原独立配置" : "供应商";
+    const firstLabel = legacyConfigured && !selected ? "原独立配置" : "环境变量";
     select.innerHTML = [
         `<option value="">${firstLabel}</option>`,
         ...openAiProviderProfiles.map(profile =>
@@ -2214,8 +2560,16 @@ function renderHistoryTitleProviders() {
     select.value = selected;
 }
 
-function renderHandoffSummaryProviders() {
-    const select = byId("handoffSummaryProvider");
+const MODEL_TASK_CONTROLS = [
+    ["handoffSummaryProvider", "handoffSummaryModel", "handoff"],
+    ["temporarySummaryProvider", "temporarySummaryModel", "temporary_summary"],
+    ["diaryKeywordProvider", "diaryKeywordModel", "diary_keyword"],
+    ["fragmentProvider", "fragmentModel", "fragment_extract"],
+    ["diaryMergeProvider", "diaryMergeModel", "diary_merge"],
+];
+
+function renderModelTaskProvider(selectId) {
+    const select = byId(selectId);
     if (!select) return;
     const selected = select.dataset.selectedProviderId || "";
     select.innerHTML = [
@@ -2227,17 +2581,20 @@ function renderHandoffSummaryProviders() {
     select.value = selected;
 }
 
+function renderHandoffSummaryProviders() {
+    renderModelTaskProvider("handoffSummaryProvider");
+}
+
+function renderTemporarySummaryProviders() {
+    renderModelTaskProvider("temporarySummaryProvider");
+}
+
 function renderLongTermSummaryProviders() {
-    const select = byId("longTermSummaryProvider");
-    if (!select) return;
-    const selected = select.dataset.selectedProviderId || "";
-    select.innerHTML = [
-        '<option value="">环境变量</option>',
-        ...openAiProviderProfiles.map(profile =>
-            `<option value="${Number(profile.id)}">${escHtml(profile.name)}</option>`
-        ),
-    ].join("");
-    select.value = selected;
+    renderModelTaskProvider("memoryExtractionProvider");
+}
+
+function renderAllModelTaskProviders() {
+    MODEL_TASK_CONTROLS.forEach(([selectId]) => renderModelTaskProvider(selectId));
 }
 
 async function loadOpenAiProviders() {
@@ -2249,8 +2606,7 @@ async function loadOpenAiProviders() {
         openAiProviderProfiles = Array.isArray(data.profiles) ? data.profiles : [];
         renderOpenAiProviders();
         renderHistoryTitleProviders();
-        renderHandoffSummaryProviders();
-        renderLongTermSummaryProviders();
+        renderAllModelTaskProviders();
         if (note) note.textContent = data.effective?.name || "环境变量";
     } catch (e) {
         if (note) note.textContent = "加载失败";
@@ -2324,137 +2680,211 @@ async function deleteOpenAiProvider(id) {
     }
 }
 
-async function loadHeartbeatSettings() {
+let heartbeatSavedSettings = null;
+let heartbeatSettingsSaving = false;
+let heartbeatSettingsLoading = false;
+let heartbeatSettingsRequest = 0;
+
+function syncHeartbeatCoffee() {
+    const enabled = byId("heartbeatEnabled");
+    const locked = heartbeatSettingsSaving || !heartbeatSavedSettings;
+    if (enabled) enabled.disabled = locked;
+    if (byId("heartbeatInterval")) byId("heartbeatInterval").disabled = locked;
+    if (byId("heartbeat-save")) byId("heartbeat-save").disabled = locked;
+    const retry = byId("heartbeat-settings-retry");
+    if (retry) retry.disabled = heartbeatSettingsLoading || heartbeatSettingsSaving;
+    byId("heartbeat-coffee")?.classList.toggle("is-awake", Boolean(
+        heartbeatSavedSettings?.enabled && heartbeatSavedSettings?.ready
+    ));
+}
+
+function applyHeartbeatSettings(data) {
     const note = byId("heartbeat-settings-note");
-    try {
-        const resp = await authFetch("/api/heartbeat-settings");
-        const data = await resp.json();
-        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        byId("heartbeatEnabled").checked = Boolean(data.enabled);
-        byId("heartbeatInterval").value = data.interval_minutes || 30;
-        byId("heartbeatProvider").value = data.provider || "openai";
-        byId("heartbeatModel").value = data.model || "";
-        if (note) {
-            if (!data.context_managed) {
-                note.textContent = "上下文管理未启用，心跳不会运行";
-            } else if (data.provider === "anthropic" && Number(data.effective_interval_minutes) !== Number(data.interval_minutes)) {
-                note.textContent = "为保持 1 小时缓存，实际按 " + data.effective_interval_minutes + " 分钟触发";
-            } else {
-                note.textContent = data.enabled ? "运行中，保存后无需重启" : "当前已关闭";
-            }
+    heartbeatSavedSettings = data;
+    byId("heartbeatEnabled").checked = Boolean(data.enabled);
+    byId("heartbeatInterval").value = data.interval_minutes || 30;
+    byId("heartbeatRoute").textContent = data.route_name || "—";
+    byId("heartbeatProviderName").textContent = data.provider_name || "—";
+    byId("heartbeatModelName").textContent = data.model || "—";
+    ["heartbeatRoute", "heartbeatProviderName", "heartbeatModelName"].forEach(id => {
+        byId(id).title = byId(id).textContent;
+    });
+    if (note) {
+        if (!data.context_managed) {
+            note.textContent = "不可用";
+        } else if (!data.route) {
+            note.textContent = "等待首次对话";
+        } else if (!data.ready) {
+            note.textContent = "供应商不可用";
+        } else if (Number(data.effective_interval_minutes) !== Number(data.interval_minutes)) {
+            note.textContent = "实际间隔 " + data.effective_interval_minutes + " 分钟";
+        } else {
+            note.textContent = data.enabled ? "运行中" : "已关闭";
         }
-    } catch (e) {
-        if (note) note.textContent = "设置加载失败：" + e.message;
     }
 }
 
-async function saveHeartbeatSettings() {
+async function loadHeartbeatSettings() {
+    if (heartbeatSettingsSaving) return;
+    const request = ++heartbeatSettingsRequest;
+    const note = byId("heartbeat-settings-note");
+    const retry = byId("heartbeat-settings-retry");
+    heartbeatSettingsLoading = true;
+    if (note) note.textContent = "载入中…";
+    syncHeartbeatCoffee();
+    try {
+        const resp = await authFetch("/api/heartbeat-settings");
+        const data = await resp.json();
+        if (request !== heartbeatSettingsRequest) return;
+        if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
+        applyHeartbeatSettings(data);
+        if (retry) retry.hidden = true;
+    } catch (e) {
+        if (request === heartbeatSettingsRequest) {
+            if (note) note.textContent = "设置加载失败：" + e.message;
+            if (retry) retry.hidden = false;
+        }
+    } finally {
+        if (request === heartbeatSettingsRequest) {
+            heartbeatSettingsLoading = false;
+            syncHeartbeatCoffee();
+        }
+    }
+}
+
+async function saveHeartbeatSettings(toggleOnly = false) {
+    if (heartbeatSettingsSaving || !heartbeatSavedSettings) return;
     const msg = byId("heartbeat-settings-msg");
+    const intervalInput = byId("heartbeatInterval");
+    const draftInterval = intervalInput.value;
     const payload = {
         enabled: Boolean(byId("heartbeatEnabled").checked),
-        interval_minutes: parseInt(byId("heartbeatInterval").value, 10),
-        provider: byId("heartbeatProvider").value,
-        model: byId("heartbeatModel").value.trim(),
+        // The stopper always works, even with an unfinished interval edit.
+        interval_minutes: toggleOnly ? heartbeatSavedSettings.interval_minutes : Number(draftInterval),
     };
-    if (!Number.isFinite(payload.interval_minutes) || payload.interval_minutes < 1 || payload.interval_minutes > 1440) {
-        if (msg) msg.textContent = "间隔需为 1-1440 分钟";
+    if (!Number.isInteger(payload.interval_minutes) || payload.interval_minutes < 1 || payload.interval_minutes > 1440) {
+        if (msg) msg.textContent = "间隔需为 1-1440 的整数分钟";
+        intervalInput.focus();
         return;
     }
-    if (msg) msg.textContent = "保存中...";
+    heartbeatSettingsSaving = true;
+    heartbeatSettingsLoading = false;
+    ++heartbeatSettingsRequest;
+    syncHeartbeatCoffee();
+    if (msg) msg.textContent = "保存中…";
     try {
-        await saveDashboardJson("/api/heartbeat-settings", {
+        const saved = await saveDashboardJson("/api/heartbeat-settings", {
             method: "PUT",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify(payload),
         });
-        if (msg) msg.textContent = "已保存";
-        await loadHeartbeatSettings();
-        setTimeout(() => { if (msg && msg.textContent === "已保存") msg.textContent = ""; }, 3000);
+        applyHeartbeatSettings({ ...heartbeatSavedSettings, ...saved });
+        if (toggleOnly) intervalInput.value = draftInterval;
+        if (msg) msg.textContent = toggleOnly ? (payload.enabled ? "心跳已开启" : "心跳已关闭") : "间隔已保存";
     } catch (e) {
+        byId("heartbeatEnabled").checked = Boolean(heartbeatSavedSettings.enabled);
         if (msg) msg.textContent = "保存失败：" + e.message;
+    } finally {
+        heartbeatSettingsSaving = false;
+        syncHeartbeatCoffee();
     }
 }
 
-async function loadConversationModelSettings() {
-    const msg = byId("conversation-model-settings-msg");
+async function loadConversationModelSettings(scope = "all") {
     try {
         const resp = await authFetch("/api/conversation-model-settings");
         const data = await readJsonResponse(resp);
         if (!resp.ok || data.error) throw new Error(data.error || "HTTP " + resp.status);
-        byId("historySearchEnabled").checked = Boolean(data.search_enabled);
-        byId("historyEmbeddingUrl").value = data.embedding_api_url || "";
-        byId("historyEmbeddingModel").value = data.embedding_model || "";
-        byId("historyEmbeddingKey").value = "";
-        byId("historyEmbeddingKey").placeholder = data.embedding_api_key_configured
-            ? data.embedding_api_key_hint : "密钥";
-        byId("longTermRecallTokenBudget").value =
-            data.long_term_recall_token_budget || 1500;
-        byId("historyTitleEnabled").checked = Boolean(data.title_enabled);
-        byId("historyTitleProvider").dataset.selectedProviderId =
-            data.title_provider_id == null ? "" : String(data.title_provider_id);
-        byId("historyTitleProvider").dataset.legacyConfigured =
-            String(Boolean(data.title_legacy_configured));
-        renderHistoryTitleProviders();
-        byId("historyTitleModel").value = data.title_model || "";
-        byId("handoffSummaryProvider").dataset.selectedProviderId =
-            data.handoff_provider_id == null ? "" : String(data.handoff_provider_id);
-        renderHandoffSummaryProviders();
-        byId("handoffSummaryModel").value = data.handoff_model || "";
-        byId("handoffSummaryModel").placeholder = data.handoff_effective_model || "模型";
-        byId("longTermSummaryProvider").dataset.selectedProviderId =
-            data.long_term_summary_provider_id == null
-                ? "" : String(data.long_term_summary_provider_id);
-        renderLongTermSummaryProviders();
-        byId("longTermSummaryModel").value = data.long_term_summary_model || "";
-        byId("longTermSummaryModel").placeholder =
-            data.long_term_summary_effective_model || "模型";
-        if (msg) msg.textContent = "";
+        if (scope !== "generation") {
+            byId("crossConversationRecallEnabled").checked = Boolean(data.cross_conversation_recall_enabled);
+            byId("historyEmbeddingUrl").value = data.embedding_api_url || "";
+            byId("historyEmbeddingModel").value = data.embedding_model || "";
+            byId("historyEmbeddingKey").value = "";
+            byId("historyEmbeddingKey").placeholder = data.embedding_api_key_configured
+                ? "已配置，留空保留" : "密钥";
+            const status = byId("conversation-vector-status");
+            status.textContent = data.search_enabled ? "已配置" : "未配置";
+            status.dataset.active = String(Boolean(data.search_enabled));
+        }
+        if (scope !== "recall") {
+            byId("fragmentInterval").value = data.fragment_interval ?? 3;
+            byId("historyTitleProvider").dataset.selectedProviderId =
+                data.title_provider_id == null ? "" : String(data.title_provider_id);
+            byId("historyTitleProvider").dataset.legacyConfigured =
+                String(Boolean(data.title_legacy_configured));
+            renderHistoryTitleProviders();
+            byId("historyTitleModel").value = data.title_model || "";
+            MODEL_TASK_CONTROLS.forEach(([selectId, modelId, prefix]) => {
+                const select = byId(selectId);
+                const input = byId(modelId);
+                select.dataset.selectedProviderId = data[prefix + "_provider_id"] == null
+                    ? "" : String(data[prefix + "_provider_id"]);
+                input.value = data[prefix + "_model"] || "";
+                input.placeholder = data[prefix + "_effective_model"] || "模型";
+            });
+            renderAllModelTaskProviders();
+        }
+        setConversationModelSettingsMessage("");
     } catch (e) {
-        if (msg) msg.textContent = "加载失败：" + e.message;
+        const status = byId("conversation-vector-status");
+        status.textContent = "加载失败";
+        status.dataset.active = "false";
+        setConversationModelSettingsMessage("加载失败：" + e.message);
     }
 }
 
-async function saveConversationModelSettings() {
-    const msg = byId("conversation-model-settings-msg");
-    const recallTokenBudget = Number(byId("longTermRecallTokenBudget").value);
-    if (!Number.isInteger(recallTokenBudget)
-        || recallTokenBudget < 256
-        || recallTokenBudget > 8000) {
-        if (msg) msg.textContent = "自动召回额度需为 256-8000 的整数";
-        return;
-    }
-    const payload = {
-        search_enabled: Boolean(byId("historySearchEnabled").checked),
+function setConversationModelSettingsMessage(text) {
+    ["recall-settings-msg", "conversation-model-settings-msg"].forEach(id => {
+        const node = byId(id);
+        if (node) node.textContent = text || "";
+    });
+}
+
+async function saveConversationModelSettings(scope = "all") {
+    let payload = {
+        fragment_interval:Number(byId("fragmentInterval").value),
+        cross_conversation_recall_enabled: Boolean(byId("crossConversationRecallEnabled").checked),
         embedding_api_url: byId("historyEmbeddingUrl").value.trim(),
         embedding_model: byId("historyEmbeddingModel").value.trim(),
         embedding_api_key: byId("historyEmbeddingKey").value.trim(),
-        long_term_recall_token_budget: recallTokenBudget,
-        title_enabled: Boolean(byId("historyTitleEnabled").checked),
         title_provider_id: byId("historyTitleProvider").value
             ? Number(byId("historyTitleProvider").value) : null,
         title_model: byId("historyTitleModel").value.trim(),
-        handoff_provider_id: byId("handoffSummaryProvider").value
-            ? Number(byId("handoffSummaryProvider").value) : null,
-        handoff_model: byId("handoffSummaryModel").value.trim(),
-        long_term_summary_provider_id: byId("longTermSummaryProvider").value
-            ? Number(byId("longTermSummaryProvider").value) : null,
-        long_term_summary_model: byId("longTermSummaryModel").value.trim(),
     };
-    if (msg) msg.textContent = "保存中...";
+    MODEL_TASK_CONTROLS.forEach(([selectId, modelId, prefix]) => {
+        payload[prefix + "_provider_id"] = byId(selectId).value
+            ? Number(byId(selectId).value) : null;
+        payload[prefix + "_model"] = byId(modelId).value.trim();
+    });
+    setConversationModelSettingsMessage("保存中...");
     try {
+        if (scope !== "all") {
+            // This endpoint also stores title settings. Preserve the server's values
+            // for the other page, never submit that page's unsaved form draft.
+            const current = await saveDashboardJson("/api/conversation-model-settings");
+            const ownFields = scope === "recall"
+                ? ["cross_conversation_recall_enabled", "embedding_api_url", "embedding_model", "embedding_api_key"]
+                : ["fragment_interval","title_provider_id", "title_model", ...MODEL_TASK_CONTROLS.flatMap(([, , prefix])=>[prefix + "_provider_id", prefix + "_model"])];
+            payload = {title_provider_id:current.title_provider_id ?? null, title_model:current.title_model || "",
+                long_term_recall_limit:current.long_term_recall_limit ?? 5,
+                ...Object.fromEntries(ownFields.map(key=>[key,payload[key]]))};
+        }
         await saveDashboardJson("/api/conversation-model-settings", {
             method: "PUT",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify(payload),
         });
-        if (msg) msg.textContent = "已保存";
-        await loadConversationModelSettings();
-        if (msg) msg.textContent = "已保存";
+        setConversationModelSettingsMessage("已保存");
+        await loadConversationModelSettings(scope);
+        setConversationModelSettingsMessage("已保存");
         setTimeout(() => {
-            if (msg && msg.textContent === "已保存") msg.textContent = "";
+            const current = byId("conversation-model-settings-msg");
+            if (current && current.textContent === "已保存") {
+                setConversationModelSettingsMessage("");
+            }
         }, 3000);
     } catch (e) {
-        if (msg) msg.textContent = "保存失败：" + e.message;
+        setConversationModelSettingsMessage("保存失败：" + e.message);
     }
 }
 
@@ -2471,7 +2901,7 @@ async function loadOcrSettings() {
         byId("ocrApiKey").placeholder = data.api_key_configured ? data.api_key_hint : "";
         byId("ocrClearKey").disabled = !data.api_key_configured;
         clearStoredOcrApiKey = false;
-        if (note) note.textContent = data.enabled ? "已启用" : "已关闭";
+        if (note) note.textContent = "";
     } catch (e) {
         if (note) note.textContent = "加载失败：" + e.message;
     }
@@ -2572,14 +3002,17 @@ function renderHeartbeatActivity(activity) {
 // ============================================
 // Token Usage
 // ============================================
+let usageLogBusy = false;
 async function loadTokenUsage() {
+    if (usageLogBusy) return;
+    usageLogBusy = true;
     const stats = byId("usage-stats");
     if (stats) stats.textContent = "加载中...";
     try {
         const [summaryResp, logsResp, monthResp] = await Promise.all([
             authFetch("/api/token-usage/summary?days=7"),
-            authFetch("/api/token-usage/logs?limit=100&days=7"),
-            authFetch("/api/token-usage/summary?days=30"),
+            authFetch("/api/token-usage/logs?limit=100&days=0"),
+            authFetch("/api/token-usage/summary?days=180"),
         ]);
         const summary = await summaryResp.json();
         const logsData = await logsResp.json();
@@ -2591,106 +3024,64 @@ async function loadTokenUsage() {
         renderModelRanking(summary);
         renderUsageHeatmap(monthSummary);
         renderUsageLogs(logsData);
+        if (typeof renderUsageOverview === "function") renderUsageOverview(monthSummary);
     } catch (e) {
         if (stats) stats.textContent = "加载失败：" + e.message;
         const logBody = byId("usage-log-body");
-        if (logBody) logBody.innerHTML = '<tr><td colspan="9"><div class="memory-card-empty">加载失败：' + escHtml(e.message) + '</div></td></tr>';
-    }
+        if (logBody) logBody.textContent = '加载失败：' + e.message;
+    } finally { usageLogBusy = false; }
 }
 
 function renderUsageSummary(data, monthData) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = monthData.today || new Date().toISOString().slice(0, 10);
     const todayRow = (monthData.daily_usage || []).find(row => row.day === today) || {};
     setText("usage-today", fmtToken(todayRow.total_tokens || 0));
     setText("usage-week", fmtToken(data.total_tokens || 0));
     setText("usage-requests", fmtToken(data.request_count || 0));
     setText("usage-cache", fmtToken(data.cache_read_tokens || 0));
     const stats = byId("usage-stats");
-    if (stats) stats.textContent = "近 7 天 " + fmtToken(data.total_tokens || 0) + " tokens";
+    if (stats) stats.textContent = "今日 " + fmtToken(todayRow.total_tokens || 0) + " · 近 7 天 " + fmtToken(data.total_tokens || 0) + " tokens";
 }
 
 function renderModelRanking(data) {
     const tbody = byId("usage-ranking-body");
     const count = byId("usage-ranking-count");
-    const rows = data.model_ranking || [];
+    const rows = (data.model_ranking || []).slice().sort((a,b) => usageNumber(b.request_count) - usageNumber(a.request_count) || usageNumber(b.total_tokens) - usageNumber(a.total_tokens));
     if (count) count.textContent = rows.length + " 个模型";
     if (!tbody) return;
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="memory-card-empty">暂无用量记录</div></td></tr>';
+        tbody.innerHTML = '<div class="memory-card-empty">暂无用量记录</div>';
         return;
     }
-    const maxTokens = Math.max(...rows.map(row => Number(row.total_tokens || 0)), 1);
+    const maxRequests = Math.max(...rows.map(row => usageNumber(row.request_count)), 1);
+    tbody.style?.setProperty('--usage-rank-count-width', Math.max(42,...rows.map(row => usageNumber(row.request_count).toLocaleString().length * 9)) + 'px');
     tbody.innerHTML = rows.map((row, index) => {
-        const total = Number(row.total_tokens || 0);
-        const width = Math.max(4, Math.round(total / maxTokens * 100));
+        const requests = usageNumber(row.request_count);
+        const width = requests / maxRequests * 100;
+        const model = row.model || '未标注模型';
+        const initial = /claude/i.test(model) ? 'C' : /gpt/i.test(model) ? 'G' : 'M';
         return `
-            <tr>
-                <td>${index + 1}</td>
-                <td><span class="usage-model-name">${escHtml(row.model || "-")}</span></td>
-                <td>${escHtml(row.provider || "-")}</td>
-                <td>${fmtToken(row.request_count || 0)}</td>
-                <td>${fmtToken(row.input_tokens || 0)}</td>
-                <td>${fmtToken(row.output_tokens || 0)}</td>
-                <td>
-                    <div>${fmtToken(total)}</div>
-                    <div class="usage-token-bar"><span style="width:${width}%"></span></div>
-                </td>
-            </tr>
+            <details class="usage-rank-item">
+                <summary title="${escHtml(model)} · ${escHtml(row.provider || '-')} · ${requests.toLocaleString()} 次请求">
+                    <span class="usage-rank-track"><i class="usage-rank-fill" style="width:${width}%" aria-hidden="true"></i><span class="usage-rank-label"><span class="usage-rank-initial" aria-hidden="true">${initial}</span><span>${escHtml(model)}</span></span></span>
+                    <strong class="usage-rank-count">${requests.toLocaleString()}</strong>
+                </summary>
+                <div class="usage-rank-info"><span>${index + 1}. ${escHtml(model)} · ${escHtml(row.provider || '-')}</span><span>输入 ${fmtToken(row.input_tokens || 0)} · 输出 ${fmtToken(row.output_tokens || 0)} · 总计 ${fmtToken(row.total_tokens || 0)} tokens</span></div>
+            </details>
         `;
     }).join("");
 }
 
-function renderUsageHeatmap(data) {
-    const container = byId("usage-heatmap");
-    const totalEl = byId("usage-heatmap-total");
-    if (!container) return;
-    const byDay = new Map((data.daily_usage || []).map(row => [row.day, row]));
-    const days = [];
-    const now = new Date();
-    for (let i = 29; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(now.getDate() - i);
-        const key = d.toISOString().slice(0, 10);
-        days.push({key, row: byDay.get(key) || {day: key, total_tokens: 0, request_count: 0}});
-    }
-    const maxTokens = Math.max(...days.map(day => Number(day.row.total_tokens || 0)), 1);
-    if (totalEl) totalEl.textContent = fmtToken(data.total_tokens || 0) + " tokens";
-    container.innerHTML = days.map(day => {
-        const total = Number(day.row.total_tokens || 0);
-        const level = total <= 0 ? 0 : Math.min(4, Math.ceil(total / maxTokens * 4));
-        const label = day.key + " / " + fmtToken(total) + " tokens / " + fmtToken(day.row.request_count || 0) + " requests";
-        return '<div class="usage-day-cell level-' + level + '" title="' + escHtml(label) + '">' +
-            '<span>' + escHtml(day.key.slice(5)) + '</span>' +
-            '<strong>' + fmtToken(total) + '</strong>' +
-        '</div>';
-    }).join("");
-}
-
 function renderUsageLogs(data) {
-    const tbody = byId("usage-log-body");
-    const count = byId("usage-log-count");
     const logs = data.logs || [];
-    if (count) count.textContent = logs.length + " 条";
-    if (!tbody) return;
-    if (!logs.length) {
-        tbody.innerHTML = '<tr><td colspan="9"><div class="memory-card-empty">暂无请求记录</div></td></tr>';
-        return;
-    }
-    tbody.innerHTML = logs.map(log => `
-            <tr>
-                <td class="col-time"><span class="time-text">${escHtml(log.created_at || "-")}</span></td>
-                <td><span class="usage-model-name">${escHtml(log.model || "-")}</span></td>
-                <td>${escHtml(log.provider || "-")}</td>
-                <td>${log.stream ? "yes" : "no"}</td>
-                <td>${fmtToken(log.input_tokens || 0)}</td>
-                <td>${fmtToken(log.output_tokens || 0)}</td>
-                <td>${fmtToken(log.total_tokens || 0)}</td>
-                <td>${fmtToken(log.cache_read_tokens || 0)}</td>
-                <td>${fmtToken(log.cache_creation_tokens || 0)}</td>
-            </tr>
-        `).join("");
+    byId('usage-log-count').textContent = logs.length + ' 条';
+    byId('usage-log-body').innerHTML = logs.map(log => `<details class="usage-log-entry"><summary>
+        <time>${escHtml(String(log.created_at || '').slice(5,16))}</time>
+        <span class="usage-log-model">${escHtml(log.model || '—')}</span><strong>${fmtToken(log.total_tokens)}</strong>
+        </summary><div class="usage-log-details"><span>${escHtml(log.created_at || '')}</span><span>${escHtml(log.provider || '')} · ${log.stream ? '流式' : '非流式'}</span>
+        <span>输入 ${fmtToken(log.input_tokens)}</span><span>输出 ${fmtToken(log.output_tokens)}</span>
+        <span>缓存读取 ${fmtToken(log.cache_read_tokens)}</span><span>缓存写入 ${fmtToken(log.cache_creation_tokens)}</span></div></details>`).join('') || '<p class="memory-card-empty">暂无请求记录</p>';
 }
-
 function fmtToken(n) {
     n = Number(n || 0);
     if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1) + "M";
@@ -2701,4 +3092,168 @@ function fmtToken(n) {
 function setText(id, text) {
     const el = byId(id);
     if (el) el.textContent = text;
+}
+
+
+let mcpSettingsBusy = false;
+let mcpEditorSequence = 0;
+function setMcpState(message, retry = false) {
+    byId("mcp-state").hidden = !message;
+    byId("mcp-settings-msg").textContent = message;
+    byId("mcp-retry").hidden = !retry;
+}
+function markMcpChanged() {
+    byId("mcp-footer").hidden = false;
+    setMcpState("");
+}
+function addMcpServer(server = {}, editing = true) {
+    if (mcpSettingsBusy && editing) return;
+    const card = document.createElement("article");
+    card.className = "mcp-server";
+    card.dataset.serverId = server.id || "";
+    const editorId = `mcp-editor-${++mcpEditorSequence}`;
+    card.innerHTML = `<div class="mcp-server-header">
+        <button type="button" class="mcp-server-disclosure" aria-expanded="${editing}" aria-controls="${editorId}">
+            <span class="mcp-server-heading"><span class="mcp-server-name"></span><span class="mcp-server-meta"></span></span>
+            <span class="mcp-server-chevron" aria-hidden="true"></span>
+        </button>
+        <label class="heartbeat-switch"><input data-mcp="enabled" type="checkbox" aria-label="启用服务"><span></span></label>
+        </div>
+        <div class="mcp-server-editor" id="${editorId}"${editing ? "" : " hidden"}>
+        <div class="mcp-server-fields">
+        <label class="route-config-row"><span>名称</span><input data-mcp="name" placeholder="服务名称"></label>
+        <label class="route-config-row"><span>地址</span><input data-mcp="url" type="url" placeholder="https://example.com/mcp" autocomplete="off" spellcheck="false"></label>
+        <div class="route-config-row"><label for="${editorId}-token">Token</label><input id="${editorId}-token" data-mcp="bearer_token" type="password" autocomplete="new-password"><button type="button" class="mcp-text-button" data-action="clear">清除</button></div>
+        </div>
+        <p class="mcp-service-status" role="status" data-mcp="status"></p>
+        <div class="mcp-server-actions"><button type="button" class="mcp-text-button" data-action="test">测试连接</button><button type="button" class="mcp-text-button btn-danger" data-action="remove">删除服务</button></div>
+        </div>`;
+    const disclosure = card.querySelector(".mcp-server-disclosure");
+    const editor = card.querySelector(".mcp-server-editor");
+    disclosure.onclick = () => {
+        editor.hidden = !editor.hidden;
+        disclosure.setAttribute("aria-expanded", String(!editor.hidden));
+    };
+    for (const field of ["name", "url"]) card.querySelector(`[data-mcp="${field}"]`).value = server[field] || "";
+    const token = card.querySelector('[data-mcp="bearer_token"]');
+    token.placeholder = server.token_configured ? "已保存，留空保留" : "可选";
+    card.querySelector('[data-mcp="enabled"]').checked = server.enabled !== false;
+    card.querySelector(".mcp-server-name").textContent = server.name || server.url || "新服务";
+    card.querySelector('[data-mcp="enabled"]').setAttribute("aria-label", `启用 ${server.name || server.url || "新服务"}`);
+    card.querySelector('[data-action="remove"]').setAttribute("aria-label", `删除服务 ${server.name || server.url || "新服务"}`);
+    card.querySelector(".mcp-server-meta").textContent = editing ? "待保存" : server.enabled === false ? "已停用" : server.status?.error ? "未连接" : `${server.status?.tools?.length || 0} 个工具`;
+    const status = card.querySelector('[data-mcp="status"]');
+    status.textContent = server.status?.error || (server.status?.tools?.join("、") || "");
+    const clearButton = card.querySelector('[data-action="clear"]');
+    clearButton.hidden = !server.token_configured;
+    clearButton.onclick = () => {
+        card.dataset.clearToken = "true";
+        token.value = "";
+        token.placeholder = "保存后清除";
+        clearButton.hidden = true;
+        markMcpChanged();
+    };
+    card.addEventListener("input", () => {
+        const name = card.querySelector('[data-mcp="name"]').value.trim() || card.querySelector('[data-mcp="url"]').value.trim() || "新服务";
+        card.querySelector(".mcp-server-name").textContent = name;
+        card.querySelector('[data-mcp="enabled"]').setAttribute("aria-label", `启用 ${name}`);
+        card.querySelector('[data-action="remove"]').setAttribute("aria-label", `删除服务 ${name}`);
+        card.querySelector(".mcp-server-meta").textContent = "待保存";
+        markMcpChanged();
+    });
+    card.querySelector('[data-action="remove"]').onclick = () => {
+        if (mcpSettingsBusy) return;
+        card.remove();
+        markMcpChanged();
+        if (!byId("mcp-servers").children.length) setMcpState("暂无服务");
+    };
+    card.querySelector('[data-action="test"]').onclick = async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        status.textContent = "连接中…";
+        try {
+            const resp = await authFetch("/api/mcp-settings/test", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(readMcpServer(card))});
+            if (resp.status === 404) throw new Error("连接测试暂不可用");
+            const data = await readJsonResponse(resp);
+            if (!resp.ok || data.error) throw new Error(data.error || "连接失败，请稍后重试");
+            status.textContent = "连接成功" + (data.tools.length ? " · " + data.tools.join("、") : " · 暂无工具");
+        } catch (error) { status.textContent = error.message; }
+        finally { button.disabled = false; }
+    };
+    byId("mcp-servers").appendChild(card);
+    if (editing) {
+        markMcpChanged();
+        card.querySelector('[data-mcp="name"]').focus();
+    }
+}
+function readMcpServer(card) {
+    const server = {id: card.dataset.serverId, clear_token: card.dataset.clearToken === "true"};
+    for (const field of ["name", "url", "bearer_token", "enabled"]) {
+        const input = card.querySelector(`[data-mcp="${field}"]`);
+        server[field] = input.type === "checkbox" ? input.checked : input.value.trim();
+    }
+    return server;
+}
+function renderMcpServers(servers) {
+    byId("mcp-servers").replaceChildren();
+    servers.forEach(server => addMcpServer(server, false));
+}
+async function loadMcpSettings() {
+    if (mcpSettingsBusy) return;
+    mcpSettingsBusy = true;
+    byId("mcp-add").hidden = byId("mcp-footer").hidden = true;
+    setMcpState("载入中…");
+    try {
+        const resp = await authFetch("/api/mcp-settings");
+        if (!resp.ok) throw new Error("服务列表暂不可用");
+        const data = await readJsonResponse(resp);
+        if (data.error) throw new Error("服务列表暂不可用");
+        renderMcpServers(data.servers);
+        setMcpState(data.servers.length ? "" : "暂无服务");
+        byId("mcp-add").hidden = false;
+    } catch (error) {
+        setMcpState("服务列表暂不可用", true);
+        console.warn("MCP settings load failed:", error.message);
+    } finally { mcpSettingsBusy = false; }
+}
+async function saveMcpSettings() {
+    if (mcpSettingsBusy) return;
+    const servers = Array.from(byId("mcp-servers").children, readMcpServer);
+    mcpSettingsBusy = true;
+    byId("mcp-add").disabled = byId("mcp-save").disabled = true;
+    byId("mcp-servers").querySelectorAll("input, button").forEach(input => input.disabled = true);
+    byId("mcp-save").textContent = "保存中…";
+    try {
+        const resp = await authFetch("/api/mcp-settings", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({servers})});
+        if (resp.status === 404) throw new Error("保存暂不可用，请稍后重试");
+        const data = await readJsonResponse(resp);
+        if (!resp.ok || data.error) throw new Error(data.error || "保存失败，请稍后重试");
+        renderMcpServers(data.servers);
+        byId("mcp-footer").hidden = true;
+        setMcpState(data.servers.some(server => server.status.error) ? "已保存，部分服务未连接" : data.servers.length ? "" : "暂无服务");
+    } catch (error) { setMcpState(error.message); }
+    finally {
+        mcpSettingsBusy = false;
+        byId("mcp-save").textContent = "保存";
+        byId("mcp-add").disabled = byId("mcp-save").disabled = false;
+        byId("mcp-servers").querySelectorAll("input, button").forEach(input => input.disabled = false);
+    }
+}
+
+function showRecallPanel(name) {
+    ['search','weights','config'].forEach(key=>byId('recall-panel-'+key).hidden=key!==name);
+    const heading=byId('memory-retrieval').querySelector('.memory-page-heading');
+    heading.hidden=name!=='search';
+}
+function openRecallDialog(title, text) {
+    const dialog=byId('recall-detail-dialog');
+    dialog.querySelector('h3').textContent=title;
+    dialog.querySelector('.recall-dialog-content').textContent=text;
+    dialog.showModal();
+}
+function openRecallRanking(button) {
+    const dialog=byId('recall-detail-dialog');
+    dialog.querySelector('h3').textContent='排序依据';
+    dialog.querySelector('.recall-dialog-content').replaceChildren(button.nextElementSibling.content.cloneNode(true));
+    dialog.showModal();
 }

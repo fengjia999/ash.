@@ -14,7 +14,7 @@
             padding: 24px;
         }
         .container { max-width: 800px; margin: 0 auto; }
-
+        
         h1 {
             font-size: 1.4rem;
             font-weight: 500;
@@ -64,7 +64,7 @@
             border-color: #a8b4f0;
         }
         textarea::placeholder { color: #555; }
-
+        
         input[type="text"], input[type="date"] {
             width: 100%;
             background: #12121a;
@@ -321,7 +321,7 @@
         <div class="form-section">
             <div class="form-row">
                 <label>对话内容</label>
-                <textarea id="quote-content" placeholder="粘贴对话原文…&#10;&#10;用户：「引用内容」&#10;助手：「回复内容」"></textarea>
+                <textarea id="quote-content" placeholder="粘贴对话原文…"></textarea>
             </div>
 
             <div class="row-inline">
@@ -495,8 +495,11 @@
 
                 container.innerHTML = data.quotes.map(q => {
                     const meta = q.metadata || {};
-                    const speakerClass = `speaker-${meta.speaker || 'both'}`;
-                    const speakerLabel = {user: '用户', assistant: '助手', both: '双方'}[meta.speaker] || '双方';
+                    const knownSpeaker = ['user', 'assistant', 'both'].includes(meta.speaker)
+                        ? meta.speaker : 'both';
+                    const speakerClass = `speaker-${knownSpeaker}`;
+                    const speakerLabel = {user: '用户', assistant: '助手', both: '两人'}[meta.speaker]
+                        || (meta.speaker ? '原角色' : '两人');
                     const dateStr = meta.original_date || q.created_at?.split(' ')[0] || '';
                     const contextStr = meta.context ? `<span class="quote-context">${meta.context}</span>` : '';
                     const tagsStr = (q.tags || []).map(t => `<span class="quote-tag">${t}</span>`).join('');
@@ -517,7 +520,7 @@
                     `;
                 }).join('');
             } catch (e) {
-                document.getElementById('quotes-container').innerHTML =
+                document.getElementById('quotes-container').innerHTML = 
                     `<div class="empty-state">加载失败: ${e.message}</div>`;
             }
         }

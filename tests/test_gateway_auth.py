@@ -6,6 +6,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 import main
+import httpx
 
 
 def make_request(path, method="GET", headers=None, query_string=b"", body=b""):
@@ -41,6 +42,31 @@ async def accepted(_request):
 
 
 class GatewayDualAuthenticationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_identity_sticker_is_served_as_webp_and_revalidated(self):
+        path = "/static/images/identity-companions.0a482df39a3a.webp"
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app),
+                                     base_url="http://test") as client:
+            response = await client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers['content-type'], 'image/webp')
+            self.assertLess(len(response.content), 300000)
+            self.assertIn('immutable', response.headers['cache-control'])
+            cached = await client.get(path, headers={'If-None-Match': response.headers['etag']})
+            self.assertEqual(cached.status_code, 304)
+            self.assertIn('immutable', cached.headers['cache-control'])
+
+    async def test_identity_sticker_cache_is_immutable_only_for_success(self):
+        path = "/static/images/identity-companions.0a482df39a3a.webp"
+        for code in (200, 304, 404, 503):
+            async def serve(_request):
+                return JSONResponse({}, status_code=code)
+            response = await main.gateway_auth_middleware(make_request(path), serve)
+            if code in (200, 304):
+                self.assertEqual(response.headers['cache-control'],
+                                 'public, max-age=31536000, immutable')
+            else:
+                self.assertNotIn('cache-control', response.headers)
+
     async def test_public_health_reports_database_degradation(self):
         with patch.object(main, "MEMORY_ENABLED", True), patch.object(
             main,

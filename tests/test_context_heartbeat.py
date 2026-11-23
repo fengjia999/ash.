@@ -65,10 +65,11 @@ class ContextHistoryTests(unittest.TestCase):
             }],
         })
 
-        self.assertIn("苏醒活动 #12", text)
-        self.assertIn("调用 bark_notify（成功）", text)
+        self.assertIn('<heartbeat_activity id="12" elapsed_minutes="30">', text)
+        self.assertIn('<tool name="bark_notify" status="ok">', text)
         self.assertIn("记得喝水", text)
         self.assertIn("delivered", text)
+        self.assertNotIn("已经通知用户。", text)
 
     def test_heartbeat_activity_decodes_jsonb_text_before_rendering(self):
         text = database._heartbeat_activity_context_text({
@@ -77,7 +78,7 @@ class ContextHistoryTests(unittest.TestCase):
             "tool_events": '[{"name":"bark_notify","input":{},"result":"delivered","ok":true}]',
         })
 
-        self.assertIn("调用 bark_notify（成功）", text)
+        self.assertIn('<tool name="bark_notify" status="ok">', text)
 
     def test_rebuild_keeps_consecutive_assistant_events_immutable(self):
         rows = [
@@ -401,8 +402,8 @@ class ConversationHandoffTests(unittest.IsolatedAsyncioTestCase):
             prompt = await main.build_system_prompt_with_memories("hello", conv_id=7)
 
         self.assertLess(prompt.index("CORE"), prompt.index("FIXED"))
-        self.assertLess(prompt.index("FIXED"), prompt.index("FLOW"))
-        self.assertLess(prompt.index("FLOW"), prompt.index("INTERACTION"))
+        self.assertLess(prompt.index("FIXED"), prompt.index("INTERACTION"))
+        self.assertLess(prompt.index("INTERACTION"), prompt.index("FLOW"))
         self.assertLess(prompt.index("INTERACTION"), prompt.index("DYNAMIC"))
         self.assertNotIn("HANDOFF", prompt)
         handoff.assert_not_awaited()
@@ -425,9 +426,12 @@ class ConversationHandoffTests(unittest.IsolatedAsyncioTestCase):
             blocks = await main.build_system_prompt_with_memories("hello", conv_id=7)
 
         self.assertEqual(3, len(blocks))
-        self.assertEqual("CORE\n\nFIXED", blocks[0]["text"])
+        self.assertEqual(
+            "CORE\n\nFIXED\n\nINTERACTION",
+            blocks[0]["text"],
+        )
         self.assertEqual({"type": "ephemeral", "ttl": "1h"}, blocks[0]["cache_control"])
-        self.assertEqual("FLOW\n\nINTERACTION", blocks[1]["text"])
+        self.assertEqual("FLOW", blocks[1]["text"])
         self.assertEqual({"type": "ephemeral", "ttl": "1h"}, blocks[1]["cache_control"])
         self.assertNotIn("cache_control", blocks[2])
         self.assertEqual("DYNAMIC", blocks[2]["text"])
@@ -462,7 +466,7 @@ class ConversationHandoffTests(unittest.IsolatedAsyncioTestCase):
             result = await main.api_create_handoff_conversation(5, request)
 
         create.assert_awaited_once_with(
-            5, "next", [9, 3, 9], store_summary_in_flow=main.MEMORY_ENABLED
+            5, "next", [9, 3, 9], store_summary_in_flow=main.MEMORY_ENABLED,
         )
         self.assertEqual(created, result["conversation"])
 
@@ -692,9 +696,9 @@ class OpenAIExplicitPromptCacheTests(unittest.TestCase):
 
         self.assertEqual({"mode": "explicit"}, body["prompt_cache_options"])
         self.assertTrue(body["prompt_cache_key"].startswith("memory-gateway:"))
-        marked = body["messages"][2]["content"][0]
+        marked = body["messages"][3]["content"][0]
         self.assertEqual("text", marked["type"])
-        self.assertEqual("old answer", marked["text"])
+        self.assertEqual("current question", marked["text"])
         self.assertEqual({"mode": "explicit"}, marked["prompt_cache_breakpoint"])
         self.assertNotIn("ttl", marked["prompt_cache_breakpoint"])
 
@@ -771,6 +775,23 @@ class ThinkingModeTests(unittest.TestCase):
         self.assertEqual("adaptive", body["thinking"]["type"])
         self.assertNotIn("budget_tokens", body["thinking"])
         self.assertEqual("medium", body["output_config"]["effort"])
+
+    def test_opus_5_requests_use_adaptive_with_or_without_manual_budget(self):
+        for model in ("claude-opus-5", "claude-opus-5-1", "claude-opus-5.5",
+                      "anthropic/claude-opus-5.5", "claude-opus-5-20261001",
+                      "anthropic.claude-opus-5:0"):
+            for budget in (0, 4096):
+                with self.subTest(model=model, budget=budget), patch.object(
+                    main, "THINKING_MODE", "auto"
+                ), patch.object(main, "THINKING_BUDGET", budget), patch.object(
+                    main, "THINKING_EFFORT", "medium"
+                ):
+                    body = main.to_anthropic_body({"model": model, "messages": [
+                        {"role": "user", "content": "Hello"}
+                    ]}, resolved_tools=[])
+                    self.assertEqual("adaptive", body["thinking"]["type"])
+                    self.assertNotIn("budget_tokens", body["thinking"])
+                    self.assertEqual("medium", body["output_config"]["effort"])
 
     def test_thinking_summary_is_logged_without_changing_blocks(self):
         blocks = [{"type": "thinking", "thinking": "check the tool state"}]
@@ -1068,35 +1089,31 @@ class HeartbeatCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(main._tool_result_succeeded("Tool error: delivery failed"))
         self.assertTrue(main._tool_result_succeeded("delivered"))
 
-    def test_heartbeat_route_selects_a_compatible_default_model(self):
-        with patch.object(main, "HEARTBEAT_MODEL", ""), patch.object(
-            main, "DEFAULT_MODEL", "claude-opus-4-6"
-        ), patch.object(main, "HEARTBEAT_PROVIDER", "openai"):
-            self.assertEqual("gpt-4o-mini", main._heartbeat_model())
-        with patch.object(main, "HEARTBEAT_MODEL", ""), patch.object(
-            main, "DEFAULT_MODEL", "claude-opus-4-6"
-        ), patch.object(main, "HEARTBEAT_PROVIDER", "anthropic"):
-            self.assertEqual("claude-opus-4-6", main._heartbeat_model())
+    async def test_heartbeat_runtime_follows_the_conversation_route(self):
+        provider = {
+            "id": 4, "name": "Last provider", "api_url": "https://example.test/v1",
+            "api_key": "secret",
+        }
+        conv = {
+            "last_route_provider": "openai",
+            "last_provider_profile_id": 4,
+            "last_provider_name": "Old name",
+            "last_model": "gpt-last",
+        }
+        with patch.object(
+            main, "get_openai_provider_profile", AsyncMock(return_value=provider)
+        ):
+            runtime = await main._heartbeat_runtime(conv)
+
+        self.assertTrue(runtime["ready"])
+        self.assertEqual("openai", runtime["route"])
+        self.assertEqual("Last provider", runtime["provider_name"])
+        self.assertEqual("gpt-last", runtime["model"])
 
     def test_anthropic_heartbeat_interval_stays_below_cache_ttl(self):
-        with patch.object(main, "HEARTBEAT_PROVIDER", "anthropic"), patch.object(
-            main, "HEARTBEAT_INTERVAL", 90
-        ):
-            self.assertEqual(55, main._heartbeat_interval_minutes())
-        with patch.object(main, "HEARTBEAT_PROVIDER", "openai"), patch.object(
-            main, "HEARTBEAT_INTERVAL", 90
-        ):
-            self.assertEqual(90, main._heartbeat_interval_minutes())
-
-    def test_persisted_settings_drive_model_and_effective_interval(self):
-        settings = {
-            "enabled": True,
-            "provider": "anthropic",
-            "model": "claude-custom",
-            "interval_minutes": 90,
-        }
-        self.assertEqual("claude-custom", main._heartbeat_model(settings))
-        self.assertEqual(55, main._heartbeat_interval_minutes(settings))
+        settings = {"enabled": True, "interval_minutes": 90}
+        self.assertEqual(55, main._heartbeat_interval_minutes(settings, "anthropic"))
+        self.assertEqual(90, main._heartbeat_interval_minutes(settings, "openai"))
 
     async def test_disabled_persisted_setting_skips_the_heartbeat(self):
         get_active = AsyncMock()
@@ -1118,10 +1135,7 @@ class HeartbeatDeliveryTests(unittest.IsolatedAsyncioTestCase):
         generate = AsyncMock(return_value=openai_result)
         heartbeat_tools = [{"name": "read_diary", "input_schema": {"type": "object"}}]
         with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main, "HEARTBEAT_PROVIDER", "openai"
-        ), patch.object(
-            main, "HEARTBEAT_MODEL", "gpt-test"
-        ), patch.object(main, "_collect_all_tools", return_value=heartbeat_tools
+            main, "_collect_all_tools", return_value=heartbeat_tools
         ), patch.object(main, "build_system_prompt_with_memories", AsyncMock(return_value="core")), patch.object(
             main, "_context_limit_error", return_value=None
         ), patch.object(main, "handle_openai_tool_loop", generate), patch.object(
@@ -1129,13 +1143,18 @@ class HeartbeatDeliveryTests(unittest.IsolatedAsyncioTestCase):
         ), patch.object(main, "finish_heartbeat_silently", finish_silently), patch.object(
             main, "save_heartbeat_activity", save_activity
         ):
+            expected_tools = main._sync_builtin_memory_tools(
+                main._filter_retired_model_tools(heartbeat_tools)
+            )
             await main._fire_heartbeat(
                 7, {}, [{"role": "assistant", "content": "previous"}], 30,
-                "claim", 2, 3,
+                "claim", 2, 3, runtime={
+                    "route": "openai", "model": "gpt-test", "ready": True,
+                    "provider": {"api_url": "https://example.test/v1", "api_key": "key"},
+                },
             )
 
         self.assertEqual(1, generate.await_count)
-        expected_tools = [*main.BUILTIN_MEMORY_TOOLS]
         self.assertEqual(
             main.convert_tools_to_openai(expected_tools),
             generate.await_args.args[1]["tools"],
@@ -1168,13 +1187,13 @@ class HeartbeatDeliveryTests(unittest.IsolatedAsyncioTestCase):
             await main._fire_heartbeat(
                 7, {}, [{"role": "assistant", "content": "previous"}], 30,
                 "claim", 2, 3,
-                settings={
-                    "provider": "openai",
-                    "model": "google/gemini-3-flash-preview",
-                },
-                openai_provider={
-                    "api_url": "https://openrouter.ai/api/v1/chat/completions",
-                    "api_key": "test-key",
+                runtime={
+                    "route": "openai", "model": "google/gemini-3-flash-preview",
+                    "ready": True,
+                    "provider": {
+                        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+                        "api_key": "test-key",
+                    },
                 },
             )
 
@@ -1206,13 +1225,12 @@ class HeartbeatDeliveryTests(unittest.IsolatedAsyncioTestCase):
         cached_message = {"role": "user", "content": "stable prefix"}
         expected_anchor = main._message_anchor_fingerprint(cached_message)
         with patch.object(main, "MEMORY_ENABLED", True), patch.object(
-            main, "HEARTBEAT_PROVIDER", "anthropic"
-        ), patch.object(
-            main, "HEARTBEAT_MODEL", "claude-test"
-        ), patch.object(main, "_collect_all_tools", return_value=[
+            main, "_collect_all_tools", return_value=[
             {"name": "fallback_tool", "input_schema": {"type": "object"}},
         ]
         ), patch.object(main, "_apply_thinking", apply_thinking
+        ), patch.object(main, "PROMPT_CACHE_ENABLED", True
+        ), patch.object(main, "PROMPT_CACHE_MESSAGE_MODELS", {"claude-test"}
         ), patch.object(main, "build_system_prompt_with_memories", AsyncMock(return_value="core")), patch.object(
             main, "_context_limit_error", return_value=None
         ), patch.object(main, "handle_tool_loop", generate), patch.object(
@@ -1222,21 +1240,30 @@ class HeartbeatDeliveryTests(unittest.IsolatedAsyncioTestCase):
         ), patch.object(
             main, "set_conversation_cache_anchor", persist_anchor
         ):
+            expected_heartbeat_tools = main._sync_builtin_memory_tools(
+                main._filter_retired_model_tools(heartbeat_tools)
+            )
             await main._fire_heartbeat(
                 7, {
                     "cache_anchor_fingerprint": expected_anchor,
                     "last_anthropic_tools": heartbeat_tools,
                 },
                 [cached_message, {"role": "assistant", "content": "previous"}], 30,
-                "claim", 2, 3,
+                "claim", 2, 3, runtime={
+                    "route": "anthropic", "model": "claude-test", "ready": True,
+                    "provider": {
+                        "api_url": "https://api.anthropic.com/v1/messages",
+                        "api_key": "key",
+                    },
+                },
             )
 
         self.assertEqual(1, generate.await_count)
-        self.assertEqual("reuse_only", generate.await_args.kwargs["cache_mode"])
+        self.assertEqual("renew", generate.await_args.kwargs["cache_mode"])
         self.assertEqual(expected_anchor, generate.await_args.kwargs["cache_anchor_fingerprint"])
         heartbeat_body = generate.await_args.args[1]
         self.assertEqual(
-            [*main.BUILTIN_MEMORY_TOOLS, heartbeat_tools[1]],
+            expected_heartbeat_tools,
             heartbeat_body["tools"],
         )
         apply_thinking.assert_called_once_with(heartbeat_body, "claude-test")
@@ -1244,15 +1271,16 @@ class HeartbeatDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(callable(generate.await_args.kwargs["tool_guard"]))
         self.assertEqual("acted", save_activity.await_args.kwargs["status"])
         self.assertEqual("bark_notify", save_activity.await_args.kwargs["tool_events"][0]["name"])
-        persist_anchor.assert_awaited_once_with(7, expected_anchor)
+        renewal = main._message_anchor_fingerprint({"role": "assistant", "content": "previous"})
+        self.assertEqual(renewal, generate.await_args.kwargs['cache_renewal_fingerprint'])
+        self.assertEqual(renewal, finish_silently.await_args.kwargs['cache_anchor_fingerprint'])
+        persist_anchor.assert_not_awaited()  # Commit the anchor under the heartbeat claim.
         self.assertTrue(finish_silently.await_args.kwargs["materialize_activities"])
 
     async def test_no_action_still_closes_claim_and_records_activity(self):
         finish_silently = AsyncMock(return_value=True)
         save_activity = AsyncMock(return_value=1)
-        with patch.object(main, "HEARTBEAT_PROVIDER", "openai"), patch.object(
-            main, "HEARTBEAT_MODEL", "gpt-test"
-        ), patch.object(main, "build_system_prompt_with_memories", AsyncMock(return_value="core")), patch.object(
+        with patch.object(main, "build_system_prompt_with_memories", AsyncMock(return_value="core")), patch.object(
             main, "_context_limit_error", return_value=None
         ), patch.object(main, "handle_openai_tool_loop", AsyncMock(return_value={
             "choices": [{"message": {"content": "[Silence]"}}],
@@ -1264,7 +1292,10 @@ class HeartbeatDeliveryTests(unittest.IsolatedAsyncioTestCase):
         ):
             await main._fire_heartbeat(
                 7, {}, [{"role": "assistant", "content": "previous"}], 30,
-                "claim", 2, 3,
+                "claim", 2, 3, runtime={
+                    "route": "openai", "model": "gpt-test", "ready": True,
+                    "provider": {"api_url": "https://example.test/v1", "api_key": "key"},
+                },
             )
 
         finish_silently.assert_awaited_once()
@@ -2394,7 +2425,7 @@ class OpenAIRouteHardeningTests(unittest.IsolatedAsyncioTestCase):
             main, "dispatch_tool_call", AsyncMock(return_value="result")
         ), patch.object(main, "_record_token_usage", AsyncMock()), patch.object(
             main, "_save_tool_context_rows", AsyncMock()
-        ), patch.object(main, "_save_ctx", AsyncMock()):
+        ), patch.object(main, "_save_ctx", AsyncMock()) as saved_reply:
             chunks = [chunk async for chunk in main.stream_openai_with_tool_loop(
                 {}, {"model": "google/gemini-test", "messages": []},
                 7, "", "google/gemini-test",
@@ -2408,6 +2439,16 @@ class OpenAIRouteHardeningTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(reasoning_details, assistant["reasoning_details"])
         self.assertIn("reasoning_details", "".join(chunks))
+        self.assertEqual("I should look this up.", saved_reply.await_args.kwargs["reasoning_content"])
+
+    def test_dashboard_reasoning_excludes_signatures_and_encrypted_blocks(self):
+        self.assertEqual("summary", main._display_reasoning({"content":[
+            {"type":"thinking", "thinking":"summary", "signature":"private-signature"},
+            {"type":"redacted_thinking", "data":"encrypted"},
+        ]}))
+        self.assertEqual("", main._display_reasoning({"reasoning_details":[
+            {"type":"reasoning.encrypted", "data":"encrypted"},
+        ]}))
 
     async def test_stream_length_finish_reason_is_an_explicit_error(self):
         response = _FakeOpenAIStreamResponse([

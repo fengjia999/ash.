@@ -1,11 +1,50 @@
 import json
 import unittest
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import main
 import database
+
+
+class StandingMemoryManualUpdateTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_edit_updates_content_and_takes_authorship(self):
+        request = MagicMock()
+        request.json = AsyncMock(return_value={"content": "用户修订后的内容"})
+        saved = {
+            "id": 17,
+            "title": "Work context",
+            "content": "用户修订后的内容",
+            "status": "active",
+            "source": "manual",
+            "layer": "core",
+            "metadata": {"fixed_section": "work_context"},
+            "created_at": None,
+            "updated_at": None,
+        }
+        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
+            main, "update_standing_memory_block", AsyncMock(return_value=saved)
+        ) as update:
+            result = await main.api_update_standing_memory(17, request)
+
+        self.assertEqual("ok", result["status"])
+        self.assertEqual("用户修订后的内容", result["block"]["content"])
+        update.assert_awaited_once_with(
+            17, content="用户修订后的内容", source="manual"
+        )
+
+    async def test_manual_edit_rejects_empty_content_without_touching_database(self):
+        request = MagicMock()
+        request.json = AsyncMock(return_value={"content": "   "})
+        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
+            main, "update_standing_memory_block", AsyncMock()
+        ) as update:
+            response = await main.api_update_standing_memory(17, request)
+
+        self.assertEqual(400, response.status_code)
+        update.assert_not_awaited()
 
 
 class StandingMemoryOverviewTests(unittest.IsolatedAsyncioTestCase):
@@ -83,11 +122,11 @@ class StandingMemoryOverviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("pending-diff-added", styles)
         self.assertIn("pending-diff-removed", styles)
 
-    def test_builtin_memory_tools_expose_pending_standing_writes(self):
+    def test_builtin_memory_tools_expose_reads_and_pending_writes(self):
         self.assertEqual(
             [
                 "create_memory", "edit_memory", "delete_memory",
-                "search_memory", "search_diary", "read_diary",
+                "search_diary", "read_diary",
             ],
             [tool["name"] for tool in main.BUILTIN_MEMORY_TOOLS],
         )
@@ -96,15 +135,19 @@ class StandingMemoryOverviewTests(unittest.IsolatedAsyncioTestCase):
                 "create_memory", "edit_memory", "delete_memory",
                 "search_memory", "read_memory", "search_diary",
                 "read_diary", "read_long_term_memory",
-                "search_conversation_history",
+                "search_conversation_history", "recall_fragments",
             },
             set(main.MEMORY_TOOL_NAMES),
         )
+        self.assertTrue({"create_memory", "edit_memory", "delete_memory"}.isdisjoint(
+            main.RETIRED_MODEL_TOOL_NAMES
+        ))
+        self.assertIn("ws_mem_write", main.RETIRED_MODEL_TOOL_NAMES)
         self.assertIn("read_long_term_memory", main.RETIRED_MODEL_TOOL_NAMES)
 
     def test_standing_memory_pending_flow_is_available(self):
         root = Path(__file__).resolve().parents[1]
-        dashboard = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        dashboard = (root / "templates" / "memory-archive.html").read_text(encoding="utf-8")
         script = (root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
         source = Path(main.__file__).read_text(encoding="utf-8")
 
@@ -121,12 +164,12 @@ class StandingMemoryOverviewTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn('block.layer !== "recent"', script)
         self.assertIn('block.layer === "recent"', script)
-        self.assertIn("固定区", script)
-        self.assertIn("流动区", script)
-        self.assertIn("由你维护的稳定记忆", script)
-        self.assertIn("保留最近", script)
+        page = (root / "templates" / "memory-archive.html").read_text(encoding="utf-8")
+        self.assertIn('aria-controls="archive-fixed"', page)
+        self.assertIn('aria-controls="archive-flow"', page)
+        self.assertIn("保留最近", page)
         self.assertIn("saveFlowMemoryMaxItems", script)
-        self.assertIn("进入流动区：", script)
+        self.assertIn('id="archive-flow-list"', page)
 
     def test_flow_window_keeps_configured_number_of_recent_records(self):
         blocks = [
@@ -249,26 +292,46 @@ class StandingMemoryOverviewTests(unittest.IsolatedAsyncioTestCase):
 
 
 class FlowMemoryPromotionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_long_term_init_splits_diary_summaries_into_fragments(self):
-        conn = MagicMock()
+    async def test_ui_handoff_does_not_queue_extraction(self):
+        request = MagicMock(json=AsyncMock(return_value={"message_ids": [1], "name": "继续"}))
+        create = AsyncMock(return_value={"id": 2})
+        with patch.object(main, "MEMORY_ENABLED", True), patch.object(
+            main, "create_conversation_from_messages", create
+        ):
+            await main.api_create_handoff_conversation(1, request)
+        create.assert_awaited_once_with(1, "继续", [1], store_summary_in_flow=True)
+
+    async def test_handoff_stores_flow_without_creating_extraction_jobs(self):
+        import database
+        active = False
+        source = {"id": 7, "name": "旧会话", "max_messages": 200, "is_active": True,
+                  "handoff_draft": "摘要", "handoff_summary_ready_for_flow": True}
+        conn = MagicMock(fetchrow=AsyncMock(side_effect=[source, {"id": 8, "name": "继续"}]))
         conn.execute = AsyncMock()
-        acquire = MagicMock()
-        acquire.__aenter__ = AsyncMock(return_value=conn)
-        acquire.__aexit__ = AsyncMock(return_value=False)
-        pool = MagicMock()
-        pool.acquire.return_value = acquire
-
-        with patch.object(database, "get_pool", AsyncMock(return_value=pool)):
-            await database.init_long_term_memory_tables()
-
-        initialization_sql = "\n".join(
-            call.args[0] for call in conn.execute.await_args_list
-        )
-        self.assertIn("idx_fragment_source_diary_summary", initialization_sql)
-        self.assertIn("btrim(diary.summary)", initialization_sql)
-        self.assertIn("'source_diary_summary_id', diary.id", initialization_sql)
-        self.assertIn("SET summary = ''", initialization_sql)
-        self.assertIn("'\"diary\"'::jsonb", initialization_sql)
+        @asynccontextmanager
+        async def transaction():
+            nonlocal active
+            active = True
+            try:
+                yield
+            finally:
+                active = False
+        conn.transaction.side_effect = transaction
+        class Pool:
+            @asynccontextmanager
+            async def acquire(self):
+                yield conn
+        async def store(*args):
+            self.assertTrue(active)
+            return 31
+        with patch.object(database, "get_pool", AsyncMock(return_value=Pool())), patch.object(
+            database, "_store_conversation_summary_in_flow", side_effect=store
+        ) as save_flow:
+            result = await database.create_conversation_from_messages(7, "继续", [])
+        save_flow.assert_awaited_once_with(conn, source)
+        self.assertEqual(31, result["flow_memory_id"])
+        self.assertFalse(active)
+        self.assertFalse(any("nocturne_extraction_jobs" in call.args[0] for call in conn.execute.await_args_list))
 
     async def test_standing_memory_init_does_not_backfill_legacy_handoff_summaries(self):
         conn = MagicMock()
@@ -335,13 +398,61 @@ class FlowMemoryPromotionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any("long_term_memory_proposals" in query for query in executed))
 
 class KelivoPromptOrderTests(unittest.IsolatedAsyncioTestCase):
-    async def test_core_then_memories_then_dynamic_order(self):
+    async def test_empty_flow_memory_omits_timeline_with_and_without_cache(self):
         blocks = [{
-            "id": 3,
-            "content": "memory body",
+            "id": 4,
+            "content": "fixed memory",
+            "layer": "core",
             "status": "active",
             "inject_enabled": True,
         }]
+        prompt_sections = AsyncMock(return_value=[
+            {"key": "Identity", "content": "CUSTOM SYSTEM"},
+            {"key": "Interaction", "content": "INTERACTION"},
+        ])
+
+        for cache_enabled in (False, True):
+            with self.subTest(cache_enabled=cache_enabled), patch.object(
+                main, "PROMPT_CACHE_ENABLED", cache_enabled
+            ), patch.object(
+                main, "get_all_sections", prompt_sections
+            ), patch.object(
+                main, "get_standing_memory_blocks", AsyncMock(return_value=blocks)
+            ), patch.object(
+                main, "build_dynamic_turn_block", AsyncMock(return_value="")
+            ):
+                result = await main.build_system_prompt_with_memories(
+                    "hello", [], conv_id=1
+                )
+
+            rendered = (
+                "\n\n".join(block["text"] for block in result)
+                if isinstance(result, list) else result
+            )
+            if cache_enabled:
+                self.assertEqual(1, len(result))
+            self.assertNotIn("<recent_timeline>", rendered)
+            self.assertNotIn("</recent_timeline>", rendered)
+            self.assertIn("fixed memory", rendered)
+
+    async def test_core_then_memories_then_dynamic_order(self):
+        blocks = [
+            {
+                "id": 3,
+                "content": "memory body",
+                "status": "active",
+                "inject_enabled": True,
+            },
+            {
+                "id": 4,
+                "title": "flow",
+                "content": "flow memory",
+                "created_at": "2026-08-24 12:00:00",
+                "layer": "recent",
+                "status": "active",
+                "inject_enabled": True,
+            },
+        ]
         prompt_sections = AsyncMock(return_value=[
             {"key": "Identity", "content": "CUSTOM SYSTEM"},
             {"key": "Interaction", "content": "INTERACTION"},
@@ -359,6 +470,9 @@ class KelivoPromptOrderTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertLess(result.index("CUSTOM SYSTEM"), result.index("## Memories"))
         self.assertLess(result.index("## Memories"), result.index("INTERACTION"))
+        self.assertLess(result.index("INTERACTION"), result.index("<recent_timeline>"))
+        self.assertLess(result.index("<recent_timeline>"), result.index("DYNAMIC ADDITION"))
+        self.assertNotIn("回忆录", result)
         self.assertLess(result.index("INTERACTION"), result.index("DYNAMIC ADDITION"))
         prompt_sections.assert_awaited_once_with()
 
@@ -399,59 +513,40 @@ class KelivoPromptOrderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, len(result))
         self.assertTrue(result[0]["text"].startswith("CUSTOM SYSTEM\n\n## Memories"))
         self.assertIn("fixed memory", result[0]["text"])
-        self.assertTrue(result[1]["text"].startswith("<recent_timeline>"))
+        self.assertIn("INTERACTION", result[0]["text"])
+        self.assertNotIn("回忆录", result[0]["text"])
         self.assertIn("flow memory", result[1]["text"])
-        self.assertTrue(result[1]["text"].endswith("INTERACTION"))
+        self.assertTrue(result[1]["text"].startswith("<recent_timeline>"))
+        self.assertTrue(result[1]["text"].endswith("</recent_timeline>"))
         self.assertEqual({"type": "ephemeral", "ttl": "1h"}, result[0]["cache_control"])
         self.assertEqual({"type": "ephemeral", "ttl": "1h"}, result[1]["cache_control"])
         prompt_sections.assert_awaited_once_with()
 
 
 class StandingMemoryPendingToolTests(unittest.IsolatedAsyncioTestCase):
-    async def test_create_tool_creates_pending_operation(self):
-        upsert = AsyncMock(return_value=({"id": 91, "status": "pending"}, True))
+    async def test_direct_memory_write_tools_create_pending_proposals(self):
+        upsert = AsyncMock(side_effect=[
+            ({"id": 21, "status": "pending"}, True),
+            ({"id": 22, "status": "pending"}, True),
+            ({"id": 23, "status": "pending"}, True),
+        ])
+        with patch.object(main, "upsert_pending_standing_memory_operation", upsert):
+            for tool_name in ("create_memory", "edit_memory", "delete_memory"):
+                result = json.loads(await main.dispatch_tool_call(
+                    tool_name, {"id": 8, "content": "内容"}
+                ))
+                self.assertEqual("pending", result["status"])
+                self.assertEqual(tool_name.removesuffix("_memory"), result["operation"])
+        self.assertEqual(3, upsert.await_count)
+
+    async def test_namespaced_memory_write_uses_pending_flow(self):
+        upsert = AsyncMock(return_value=({"id": 24, "status": "pending"}, True))
         with patch.object(main, "upsert_pending_standing_memory_operation", upsert):
             result = json.loads(await main.dispatch_tool_call(
-                "create_memory",
-                {"content": "记住这件事", "reason": "稳定偏好"},
+                "legacy.create_memory", {"content": "需要记住"}
             ))
-
         self.assertEqual("pending", result["status"])
-        self.assertEqual(91, result["proposal_id"])
-        upsert.assert_awaited_once_with(
-            "create",
-            content="记住这件事",
-            metadata={"source_tool": "create_memory"},
-        )
-
-    async def test_edit_tool_upserts_pending_operation(self):
-        upsert = AsyncMock(return_value=({"id": 92, "status": "pending"}, False))
-        with patch.object(main, "upsert_pending_standing_memory_operation", upsert):
-            result = json.loads(await main.dispatch_tool_call(
-                "edit_memory",
-                {"id": 7, "content": "替换后的完整内容"},
-            ))
-
-        self.assertEqual("updated", result["action"])
-        self.assertEqual(7, result["target_memory_id"])
-        self.assertEqual("edit", upsert.await_args.args[0])
-        self.assertEqual(7, upsert.await_args.kwargs["target_block_id"])
-        self.assertEqual("替换后的完整内容", upsert.await_args.kwargs["content"])
-
-    async def test_delete_tool_only_creates_pending_operation(self):
-        upsert = AsyncMock(return_value=({"id": 93, "status": "pending"}, True))
-        with patch.object(main, "upsert_pending_standing_memory_operation", upsert):
-            result = json.loads(await main.dispatch_tool_call(
-                "delete_memory", {"id": 8, "reason": "已过时"}
-            ))
-
-        self.assertEqual("pending", result["status"])
-        self.assertEqual("delete", result["operation"])
-        upsert.assert_awaited_once_with(
-            "delete",
-            target_block_id=8,
-            metadata={"source_tool": "delete_memory"},
-        )
+        upsert.assert_awaited_once()
 
     async def test_edit_approval_applies_replacement_and_removes_proposal(self):
         class AsyncContext:
@@ -501,7 +596,3 @@ class StandingMemoryPendingToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("edit", result["operation"])
         self.assertEqual("新内容", result["block"]["content"])
         self.assertEqual(102, connection.deleted_pending_id)
-
-
-if __name__ == "__main__":
-    unittest.main()

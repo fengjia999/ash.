@@ -1,0 +1,107 @@
+/* Ash DOM/streaming adapter for the Merle chat skin. Visual rules live in merle-chat-base.css. */
+.phone-chat-root, .phone-chat-root body { width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
+body.context-detail-only { --safe-top: 0px; --safe-bottom: var(--phone-host-safe-bottom,0px); --font-size: 14px; }
+body.context-detail-only [hidden] { display: none !important; }
+body.context-detail-only .app { position: fixed; inset: 0; height: auto; background: var(--chat-paper); }
+body.context-detail-only { overscroll-behavior: none; touch-action: manipulation; }
+body.context-detail-only.phone-viewport-standalone { --safe-top: env(safe-area-inset-top,0px); --safe-bottom: env(safe-area-inset-bottom,0px); }
+body.context-detail-only.phone-chat-keyboard-open { --safe-bottom: 0px; }
+body.context-detail-only.phone-viewport-standalone.phone-viewport-active .app { position: fixed; inset: var(--phone-visible-top,0px) 0 auto; height: var(--phone-visible-height,100dvh); }
+@media (display-mode: standalone), (display-mode: fullscreen) {
+    /* Only a top-level chat owns the screen; iframe chat fills its host. */
+    .phone-chat-root:has(> body.phone-viewport-standalone), body.context-detail-only.phone-viewport-standalone { height:100lvh; }
+    body.context-detail-only.phone-viewport-standalone .app { bottom:auto; height:100lvh; }
+}
+body.context-detail-only .msg-area { overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+body.context-detail-only .phone-message-bubble { -webkit-touch-callout: none; }
+body.context-detail-only .app > .topbar { padding-left: max(14px,env(safe-area-inset-left)) !important; padding-right: max(14px,env(safe-area-inset-right)) !important; }
+body.context-detail-only.phone-chat-keyboard-open .app > .topbar { min-height: var(--chat-header-height); padding-top: 4px !important; }
+body.context-detail-only.phone-chat-keyboard-open .composer { padding-bottom: 0 !important; }
+@media (pointer: coarse) {
+    body.context-detail-only :is(input:not([type=range]):not([type=checkbox]):not([type=radio]),textarea,select) { font-size: 16px; }
+    body.context-detail-only .phone-message-bubble { user-select: none; -webkit-user-select: none; }
+    body.context-detail-only .phone-message-bubble :is(pre,code,a) { user-select: text; -webkit-user-select: text; }
+}
+body.context-detail-only .conv-heading, body.context-detail-only .topbar-actions,
+body.context-detail-only .composer-top { display: none; }
+body.context-detail-only .topbar-left { display: block; min-width: 0; }
+body.context-detail-only .topbar-left .menu-btn { display: grid; place-items: center; font-size: 23px; cursor: pointer; }
+.phone-chat-header-tools { display: flex; align-items: center; }
+body.context-detail-only #phone-chat-model { display:block; width:88px !important; min-width:0 !important; height:auto !important; margin-top:9px; padding:0; border:0 !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important; color:var(--chat-muted); font:11px/1.5 var(--chat-font); text-align:right; cursor:pointer; }
+#phone-chat-model .phone-chat-model-label { display:block; max-width:88px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.phone-chat-avatar { display: grid; place-items: center; background: #eeeee9; color: #666663; }
+.phone-chat-avatar svg { width: 70%; height: 70%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.phone-message-reasoning { display:grid; place-items:center; width:44px; height:28px; flex:0 0 auto; padding:0; margin:0; border:0; background:transparent; cursor:pointer; align-self:flex-start; }
+.phone-message-reasoning::after { content:''; width:8px; height:8px; border-radius:50%; background:#969696; }
+.phone-message-reasoning:focus-visible { outline:2px solid var(--chat-muted); outline-offset:-4px; border-radius:12px; }
+.phone-reasoning-dialog { width:min(440px,calc(100% - 32px)); max-height:75dvh; margin:auto; padding:0; border:1px solid var(--chat-edge); border-radius:20px; background:var(--chat-card); color:var(--chat-ink); }
+.phone-reasoning-dialog::backdrop { background:#0006; }
+.phone-reasoning-dialog > header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--chat-edge); }
+.phone-reasoning-dialog h2 { margin:0; font:600 17px/1.4 var(--chat-font); }
+.phone-reasoning-dialog h2:focus { outline:none; }
+.phone-reasoning-dialog header button { width:44px; height:44px; border:0; border-radius:50%; background:transparent; color:inherit; font-size:26px; cursor:pointer; }
+.phone-reasoning-content { padding:20px; overflow:auto; max-height:calc(75dvh - 70px); overscroll-behavior:contain; white-space:pre-wrap; overflow-wrap:anywhere; font:15px/1.7 var(--chat-font); }
+.phone-chat-person strong { max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
+body.context-detail-only .msg-area { display: flex; flex-direction: column; scroll-behavior: auto; }
+body.context-detail-only .msg-area::before { content: ''; margin-top: auto; flex: 0 0 auto; }
+body.context-detail-only .msg { display: flex; align-items: flex-end; color: var(--chat-ink); white-space: normal; margin-bottom: 14px; }
+body.context-detail-only .msg.user { justify-content: flex-end; align-self: stretch; }
+body.context-detail-only .msg.assistant { justify-content: flex-start; align-self: stretch; }
+.phone-message-body { display: flex; flex-direction: column; align-items: flex-start; position: relative; }
+.msg.user .phone-message-body { align-items: flex-end; }
+.phone-message-bubble { position: relative; white-space: pre-wrap; }
+body.context-detail-only .msg-body { font: inherit; color: inherit; line-height: inherit; }
+body.context-detail-only .msg-header { display: block; position: static; border: 0; background: transparent; min-height: 0; margin: 3px 0 0; }
+body.context-detail-only .msg-header > :not(.msg-time) { display: none; }
+body.context-detail-only .msg-time { color: var(--chat-muted); font-size: 10px; line-height: 14px; }
+body.context-detail-only .msg .msg-actions,
+body.context-detail-only .msg:hover .msg-actions { position:static; display:none; align-items:center; gap:2px; margin-top:2px; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; transition:none; }
+body.context-detail-only .msg.phone-message-actions-open .msg-actions,
+body.context-detail-only .msg:focus-within .msg-actions { display:flex; opacity:1; pointer-events:auto; }
+body.context-detail-only .msg.selectable .msg-actions { display:none; }
+body.context-detail-only .msg-act-btn { display:grid; place-items:center; min-width:44px; min-height:36px; padding:4px 8px; border:0; border-radius:8px; background:transparent; box-shadow:none; color:var(--chat-muted); font:12px/1.4 var(--chat-font); }
+body.context-detail-only .msg-act-btn:hover { transform:none; background:var(--chat-edge); }
+body.context-detail-only .msg-act-btn.danger { color:var(--danger); }
+.msg-act-btn svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.phone-save-keepsake[aria-pressed="true"] svg { fill:currentColor; }
+body.context-detail-only .msg.selected .phone-message-bubble { outline: 2px solid var(--chat-muted); outline-offset: 3px; }
+body.context-detail-only .composer { display: block; flex-shrink: 0; }
+body.context-detail-only .composer[style*="display: none"], body.context-detail-only .composer[style*="display:none"] { display: none !important; }
+.phone-input-bar { display: flex; align-items: flex-end; }
+.phone-input-wrap { min-width: 0; }
+body.context-detail-only textarea.input-area { display: block; min-height: 22px; max-height: 130px; margin: 0; padding: 0; resize: none; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 16px; line-height: 22px; }
+body.context-detail-only textarea.input-area:focus { border: 0; box-shadow: none; }
+body.context-detail-only .composer-btns { display: contents; }
+.phone-chat-more { border: 0; background: none; font-size: 27px; line-height: 1; cursor: pointer; }
+body.context-detail-only #sendBtn { display: grid; place-items: center; padding: 6px; cursor: pointer; }
+body.context-detail-only #sendBtn:disabled { opacity: .3; }
+.phone-chat-send-label { display: none; }
+.phone-chat-send-icon { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+body.context-detail-only #appendBtn { display: none; }
+body.context-detail-only #stopChat { position: absolute; right: 16px; bottom: calc(100% + 5px); z-index: 2; padding: 6px 12px; border: 1px solid var(--chat-edge); border-radius: 15px; background: var(--chat-card); color: var(--chat-ink); }
+.phone-chat-notice { grid-column:1 / -1; grid-row:2; display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0; padding:4px 2px 0; color:var(--chat-muted); font-size:12px; line-height:1.5; }
+#phone-chat-notice-text { overflow-wrap:anywhere; }
+.phone-chat-notice button { flex-shrink:0; min-height:36px; padding:4px 10px; border:0; border-radius:8px; color:var(--chat-ink); background:transparent; cursor:pointer; font:inherit; }
+body.context-detail-only.phone-chat-options-open .app > .topbar { position: relative !important; inset: auto !important; grid-template-rows: auto auto; }
+body.context-detail-only.phone-chat-options-open .topbar-actions { display: flex; grid-column: 1 / -1; grid-row: 3; flex-wrap: wrap; justify-content: center; max-width: 100%; margin: 3px 0; padding: 6px; gap: 8px; }
+body.context-detail-only.phone-chat-options-open .msg-area { padding-top: 16px !important; }
+body.context-detail-only.phone-chat-options-open .composer-top { display: flex; padding: 6px 18px; }
+body.context-detail-only.phone-chat-options-open #appendBtn { display: block; position: absolute; right: 16px; bottom: calc(100% + 4px); padding: 6px 12px; border-radius: 12px; background: var(--chat-card); color: var(--chat-ink); border: 1px solid var(--chat-edge); }
+body.context-detail-only .composer-hint { color: var(--chat-muted); font-size: 10px; line-height: 1.5; }
+body.context-detail-only .composer-role-label { display: none; }
+body.context-detail-only .handoff-summary { width: 100%; flex-shrink: 0; font-size: 11px; background: var(--chat-reply); border: 1px solid var(--chat-edge); }
+body.context-detail-only .selection-bar { position: absolute; left: 0; right: 0; bottom: 0; transform: none; z-index: 30; flex-wrap: wrap; gap: 8px; padding: 12px; background: var(--chat-card); color: var(--chat-ink); }
+body.context-detail-only .welcome { font-size: 12px; color: var(--chat-muted); }
+:root[data-theme="dark"] body.context-detail-only .phone-chat-avatar { background: #2b2c2d; color: #d0cec5; }
+@media (prefers-reduced-motion: reduce) { body.context-detail-only * { animation: none !important; scroll-behavior: auto !important; } }
+.phone-recall-content { padding:0 18px 18px; overflow-wrap:anywhere; }
+.phone-recall-card { padding:18px 0; border-bottom:1px solid var(--chat-edge); }
+.phone-recall-card:last-child { border-bottom:0; }
+.phone-recall-card small { color:var(--chat-muted); font-size:11px; }
+.phone-recall-card p { white-space:pre-wrap; font-size:15px; line-height:1.8; margin:6px 0 16px; }
+.phone-recall-feedback { display:flex; align-items:center; gap:8px; }
+.phone-recall-feedback button { display:grid; place-items:center; width:44px; height:44px; border-radius:50%; color:var(--chat-muted); }
+.phone-recall-feedback svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.phone-recall-feedback [data-feedback="useless"] svg { transform:rotate(180deg); }
+.phone-recall-feedback [aria-pressed="true"] { color:var(--chat-card); background:var(--chat-ink); }
+.phone-recall-feedback span { font-size:12px; color:var(--chat-muted); }

@@ -6,6 +6,11 @@ import main
 
 
 class OpenAiProviderProfileTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        setting = patch.object(main, "get_route_settings", AsyncMock(return_value={"provider":"auto", "model":""}))
+        setting.start()
+        self.addCleanup(setting.stop)
+
     def test_public_profile_never_exposes_key(self):
         public = main._openai_provider_public({
             "id": 3,

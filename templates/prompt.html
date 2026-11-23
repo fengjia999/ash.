@@ -4,437 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Prompt Console</title>
-<style>
-  :root {
-    --bg: #0a0e14;
-    --surface: #111820;
-    --border: #1e2a3a;
-    --text: #c5cdd8;
-    --text-dim: #5a6a7a;
-    --accent: #4A6FA5;
-    --accent-glow: #4A6FA520;
-    --locked: #e8443a;
-    --locked-bg: #e8443a10;
-    --editable: #3aaa6a;
-    --editable-bg: #3aaa6a10;
-    --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-    --font-sans: -apple-system, 'Segoe UI', sans-serif;
-  }
+<script src="/static/js/theme.js?v={{ static_version }}"></script>
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  html, body { touch-action: manipulation; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-sans);
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  /* === 顶部 header === */
-  .header {
-    border-bottom: 1px solid var(--border);
-    padding: 20px 32px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    backdrop-filter: blur(20px);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    background: var(--bg);
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .header h1 {
-    font-size: 18px;
-    font-weight: 600;
-    letter-spacing: 2px;
-    color: var(--accent);
-    font-family: var(--font-mono);
-  }
-
-  .header .stats {
-    font-size: 12px;
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-  }
-
-  .tab-bar {
-    display: flex;
-    gap: 4px;
-  }
-
-  .tab-btn {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    padding: 6px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    font-family: var(--font-mono);
-    transition: all 0.2s;
-  }
-
-  .tab-btn:hover { border-color: var(--accent); color: var(--text); }
-  .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-  /* === 主体 === */
-  .container {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 24px 32px;
-  }
-
-  .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
-
-  /* === 段落卡片 === */
-  .section-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    margin-bottom: 16px;
-    overflow: hidden;
-    transition: border-color 0.2s;
-  }
-
-  .section-card:hover { border-color: var(--accent); }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 20px;
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .section-header-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .section-key {
-    font-family: var(--font-mono);
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-  }
-
-  .badge {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-family: var(--font-mono);
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-  }
-
-  .badge.locked {
-    background: var(--locked-bg);
-    color: var(--locked);
-    border: 1px solid var(--locked);
-  }
-
-  .badge.editable {
-    background: var(--editable-bg);
-    color: var(--editable);
-    border: 1px solid var(--editable);
-  }
-
-  .badge.priority {
-    background: var(--accent-glow);
-    color: var(--accent);
-    border: 1px solid var(--accent);
-  }
-
-  .section-meta {
-    font-size: 11px;
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-  }
-
-  .section-body {
-    display: none;
-    padding: 0 20px 16px;
-  }
-
-  .section-body.open { display: block; }
-
-  .section-content {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 14px 16px;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.7;
-    color: var(--text);
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 400px;
-    overflow-y: auto;
-  }
-
-  .section-content::-webkit-scrollbar { width: 4px; }
-  .section-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-  /* 编辑态 */
-  .edit-area {
-    display: none;
-    margin-top: 12px;
-  }
-
-  .edit-area.open { display: block; }
-
-  .edit-area textarea {
-    width: 100%;
-    min-height: 200px;
-    background: var(--bg);
-    border: 1px solid var(--accent);
-    border-radius: 6px;
-    padding: 14px 16px;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.7;
-    color: var(--text);
-    resize: vertical;
-    outline: none;
-  }
-
-  .edit-area textarea:focus { box-shadow: 0 0 0 2px var(--accent-glow); }
-
-  .edit-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 10px;
-    justify-content: flex-end;
-  }
-
-  .btn {
-    padding: 7px 18px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: var(--font-mono);
-    cursor: pointer;
-    border: 1px solid var(--border);
-    transition: all 0.2s;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: #fff;
-    border-color: var(--accent);
-  }
-
-  .btn-primary:hover { opacity: 0.85; }
-
-  .btn-ghost {
-    background: transparent;
-    color: var(--text-dim);
-  }
-
-  .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
-
-  .btn-edit {
-    background: transparent;
-    color: var(--editable);
-    border: 1px solid var(--editable);
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  .btn-edit:hover { background: var(--editable-bg); }
-
-  /* === 日志 === */
-  .log-entry {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 18px;
-    margin-bottom: 10px;
-    font-size: 13px;
-  }
-
-  .log-meta {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 8px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
-  .log-meta .by-assistant { color: var(--accent); }
-  .log-meta .by-manual { color: var(--editable); }
-
-  .log-reason {
-    color: var(--text);
-    font-style: italic;
-    margin-bottom: 6px;
-  }
-
-  .log-diff {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  .log-diff-box {
-    background: var(--bg);
-    border-radius: 4px;
-    padding: 8px 10px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--text-dim);
-    max-height: 120px;
-    overflow-y: auto;
-  }
-
-  .log-diff-box.old { border-left: 2px solid var(--locked); }
-  .log-diff-box.new { border-left: 2px solid var(--editable); }
-
-  .log-diff-label {
-    font-size: 10px;
-    font-family: var(--font-mono);
-    color: var(--text-dim);
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-
-  /* === preview === */
-  .preview-box {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 20px 24px;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.8;
-    color: var(--text);
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 70vh;
-    overflow-y: auto;
-  }
-
-  .preview-box::-webkit-scrollbar { width: 4px; }
-  .preview-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-  /* === 空状态 === */
-  .empty {
-    text-align: center;
-    color: var(--text-dim);
-    padding: 60px 0;
-    font-family: var(--font-mono);
-  }
-
-  /* === toast === */
-  .toast {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    background: var(--accent);
-    color: #fff;
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-family: var(--font-mono);
-    opacity: 0;
-    transform: translateY(10px);
-    transition: all 0.3s;
-    z-index: 999;
-  }
-
-  .toast.show { opacity: 1; transform: translateY(0); }
-  .toast.error { background: var(--locked); }
-
-  /* === loading === */
-  .loading {
-    text-align: center;
-    color: var(--text-dim);
-    padding: 40px;
-    font-family: var(--font-mono);
-  }
-
-  .loading::after {
-    content: '';
-    animation: dots 1.5s infinite;
-  }
-
-  @keyframes dots {
-    0%, 20% { content: '.'; }
-    40% { content: '..'; }
-    60%, 100% { content: '...'; }
-  }
-
-  /* Dashboard embed: reuse the editor without introducing a second UI. */
-  body.dashboard-embedded {
-    --bg: #f5f1ea;
-    --surface: #faf7f1;
-    --border: #d4c9b6;
-    --text: #2c2416;
-    --text-dim: #8c7b64;
-    --accent: #315c78;
-    --accent-glow: #315c7818;
-    --locked: #b5442a;
-    --locked-bg: #edd9d2;
-    --editable: #4a6a5a;
-    --editable-bg: #dce5dc;
-    background:transparent;
-  }
-  body.dashboard-embedded .header {
-    position:sticky;
-    padding:12px 16px;
-    background:rgba(245,241,234,.94);
-    border-bottom:1px solid var(--border);
-  }
-  body.dashboard-embedded .header h1 { display:none; }
-  body.dashboard-embedded .container {
-    max-width:none;
-    padding:16px;
-  }
-  body.dashboard-embedded .tab-btn,
-  body.dashboard-embedded .section-card,
-  body.dashboard-embedded .section-content,
-  body.dashboard-embedded .edit-area textarea,
-  body.dashboard-embedded .preview-box,
-  body.dashboard-embedded .log-entry,
-  body.dashboard-embedded .btn {
-    border-radius:2px;
-  }
-  body.dashboard-embedded .section-card,
-  body.dashboard-embedded .log-entry {
-    box-shadow:5px 5px 0 rgba(44,36,22,.07);
-  }
-  body.dashboard-embedded .tab-btn.active,
-  body.dashboard-embedded .btn-primary {
-    box-shadow:3px 3px 0 rgba(181,68,42,.55);
-  }
-
-  /* mobile */
-  @media (max-width: 640px) {
-    .header { padding: 14px 16px; flex-direction: column; gap: 12px; }
-    .container { padding: 16px; }
-    .log-diff { grid-template-columns: 1fr; }
-  }
-</style>
+<link rel="stylesheet" href="/static/css/prompt-paper.css?v={{ static_version }}">
 </head>
 <body{% if embedded %} class="dashboard-embedded"{% endif %}>
 
@@ -444,9 +16,9 @@
     <span class="stats" id="stats"></span>
   </div>
   <div class="tab-bar">
-    <button class="tab-btn active" data-tab="sections">Sections</button>
-    <button class="tab-btn" data-tab="preview">Preview</button>
-    <button class="tab-btn" data-tab="logs">Logs</button>
+    <button class="tab-btn active" data-tab="sections" aria-label="提示词段落" aria-pressed="true" title="提示词段落"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20S3 14.5 3 8.5C3 3.5 9 2.5 12 7c3-4.5 9-3.5 9 1.5C21 14.5 12 20 12 20Z"/></svg></button>
+    <button class="tab-btn" data-tab="preview" aria-label="完整预览" aria-pressed="false" title="完整预览"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <button class="tab-btn" data-tab="logs" aria-label="修改日志" aria-pressed="false" title="修改日志"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 15 10-11c2-2 5 1 3 3L8 18l-5 3 2-6Z M13 6l4 4M5 15l3 3"/></svg></button>
   </div>
 </div>
 
@@ -491,9 +63,10 @@ function authFetch(url, options = {}) {
 // === Tab 切换 ===
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
     document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'preview') loadPreview();
     if (btn.dataset.tab === 'logs') loadLogs();
@@ -509,15 +82,18 @@ function toast(msg, isError = false) {
 }
 
 // === 加载段落 ===
+const promptSectionsByKey = new Map();
 async function loadSections() {
   try {
     const resp = await authFetch(API_BASE + '/api/prompt');
     const data = await resp.json();
     const sections = data.sections || [];
+    promptSectionsByKey.clear();
+    sections.forEach(section => promptSectionsByKey.set(section.key, section));
 
     document.getElementById('sections-loading').style.display = 'none';
     document.getElementById('stats').textContent =
-      `${sections.length} sections · ${data.total_chars} chars`;
+      `${sections.length} sections · ${data.full_prompt_chars} chars`;
 
     const list = document.getElementById('sections-list');
     list.innerHTML = '';
@@ -533,35 +109,44 @@ async function loadSections() {
     sections.forEach(s => {
       const card = document.createElement('div');
       card.className = 'section-card';
+      card.dataset.sectionKey = s.key;
       const isEditable = s.mode === 'editable';
       const charCount = (s.content || '').length;
 
       card.innerHTML = `
-        <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header" role="button" tabindex="0" aria-expanded="false" onclick="toggleSection(this)" onkeydown="if(event.target === this && (event.key === 'Enter' || event.key === ' ')){ event.preventDefault(); toggleSection(this); }">
           <div class="section-header-left">
             <span class="section-key">${esc(s.key)}</span>
             <span class="badge ${s.mode}">${s.mode}</span>
-            <span class="badge priority">P${s.priority || 50}</span>
           </div>
-          <span class="section-meta">${charCount} chars</span>
+          <span class="section-meta">${charCount} chars · P${s.priority || 50}</span>
         </div>
+        ${isEditable ? `<button type="button" class="section-edit-shortcut btn-edit" aria-label="Edit ${esc(s.key)}" onclick="editPromptSection(this)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6L16 3Zm-2 2 5 5"/></svg></button>` : ''}
         <div class="section-body">
-          <div class="section-content">${esc(s.content || '')}</div>
+          <div class="section-content"></div>
           ${isEditable ? `
-            <div style="margin-top:10px; text-align:right;">
-              <button class="btn-edit" onclick="openEdit('${esc(s.key)}', this)">EDIT</button>
-            </div>
             <div class="edit-area" id="edit-${esc(s.key)}">
-              <textarea id="textarea-${esc(s.key)}">${esc(s.content || '')}</textarea>
+              <textarea id="textarea-${esc(s.key)}"></textarea>
+              <input class="edit-reason" id="reason-${esc(s.key)}" type="text" aria-label="修改原因（可选）" placeholder="修改原因（可选）">
               <div class="edit-actions">
                 <button class="btn btn-ghost" onclick="closeEdit('${esc(s.key)}')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveEdit('${esc(s.key)}')">Save</button>
               </div>
             </div>
+            <p class="prompt-save-status" id="save-status-${esc(s.key)}" role="status" aria-live="polite"></p>
           ` : ''}
         </div>
       `;
       list.appendChild(card);
+      if (isEditable) {
+        const markDirty = () => {
+          const status = document.getElementById('save-status-' + s.key);
+          status.textContent = '尚未保存';
+          status.dataset.state = 'dirty';
+        };
+        document.getElementById('textarea-' + s.key).addEventListener('input', markDirty);
+        document.getElementById('reason-' + s.key).addEventListener('input', markDirty);
+      }
     });
   } catch (e) {
     document.getElementById('sections-loading').textContent = 'Failed to load: ' + e.message;
@@ -569,15 +154,34 @@ async function loadSections() {
 }
 
 function toggleSection(header) {
-  const body = header.nextElementSibling;
+  const body = header.closest('.section-card').querySelector('.section-body');
   body.classList.toggle('open');
+  if (body.classList.contains('open') && !body.dataset.loaded) {
+    const section = promptSectionsByKey.get(header.closest('.section-card').dataset.sectionKey);
+    body.querySelector('.section-content').textContent = section?.content || '';
+    body.dataset.loaded = 'true';
+  }
+  header.setAttribute('aria-expanded', String(body.classList.contains('open')));
+}
+
+function editPromptSection(button) {
+  const card = button.closest('.section-card');
+  const header = card.querySelector('.section-header');
+  if (!card.querySelector('.section-body').classList.contains('open')) toggleSection(header);
+  openEdit(card.dataset.sectionKey, card.querySelector('.btn-edit'));
 }
 
 function openEdit(key, btn) {
   const area = document.getElementById('edit-' + key);
   if (area) {
+    const textarea = document.getElementById('textarea-' + key);
+    if (!textarea.dataset.initialized) {
+      textarea.value = promptSectionsByKey.get(key)?.content || '';
+      textarea.dataset.initialized = 'true';
+    }
     area.classList.add('open');
     btn.style.display = 'none';
+    textarea.focus();
   }
 }
 
@@ -593,28 +197,48 @@ function closeEdit(key) {
 }
 
 async function saveEdit(key) {
-  const textarea = document.getElementById('textarea-' + key);
-  if (!textarea) return;
-
-  const content = textarea.value;
-  const reason = prompt('修改原因（可选）：') || '';
-
-  try {
+    const textarea = document.getElementById('textarea-' + key);
+    if (!textarea) return;
+    const area = document.getElementById('edit-' + key);
+    if (area.dataset.saving === 'true') return;
+    const status = document.getElementById('save-status-' + key);
+    const content = textarea.value;
+    const reason = document.getElementById('reason-' + key)?.value || '';
+    const controls = [...area.querySelectorAll('button,textarea,input')];
+    const button = area.querySelector('.btn-primary');
+    area.dataset.saving = 'true';
+    controls.forEach(control => { control.disabled = true; });
+    button.textContent = '保存中…';
+    status.textContent = '正在保存…';
+    status.dataset.state = 'saving';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
     const resp = await authFetch(API_BASE + '/api/prompt/' + encodeURIComponent(key), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content, reason, edited_by: 'manual' }),
+      signal: controller.signal,
     });
     const data = await resp.json();
-    if (data.error) {
-      toast(data.error, true);
-    } else {
-      toast('Saved ✓');
-      closeEdit(key);
-      loadSections(); // 重新加载
-    }
+    if (!resp.ok || data.error) throw new Error(data.error || 'HTTP ' + resp.status);
+    const card = area.closest('.section-card');
+    card.querySelector('.section-content').textContent = content;
+    const section = promptSectionsByKey.get(key);
+    if (section) section.content = content;
+    card.querySelector('.section-meta').textContent = (data.new_char_count ?? data.chars ?? [...content].length) + ' chars · P' + (section?.priority || 50);
+    status.textContent = '已保存 ✓ · ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+    status.dataset.state = 'saved';
+    closeEdit(key);
+    card.querySelector('.btn-edit')?.focus({preventScroll: true});
   } catch (e) {
-    toast('Save failed: ' + e.message, true);
+    status.textContent = '保存失败：' + (e.name === 'AbortError' ? '请求超时，请重试' : e.message);
+    status.dataset.state = 'error';
+  } finally {
+    clearTimeout(timer);
+    area.dataset.saving = 'false';
+    controls.forEach(control => { control.disabled = false; });
+    button.textContent = 'Save';
   }
 }
 
@@ -624,13 +248,14 @@ async function loadPreview() {
     document.getElementById('preview-loading').style.display = 'block';
     document.getElementById('preview-content').style.display = 'none';
 
-    const resp = await authFetch(API_BASE + '/api/prompt');
+    const resp = await authFetch(API_BASE + '/api/prompt/splice-preview');
     const data = await resp.json();
+    if (!resp.ok || data.error) throw new Error(data.error || 'HTTP ' + resp.status);
 
     document.getElementById('preview-loading').style.display = 'none';
     const box = document.getElementById('preview-content');
     box.style.display = 'block';
-    box.textContent = data.assembled_preview || '(empty)';
+    box.textContent = data.content || '(empty)';
   } catch (e) {
     document.getElementById('preview-loading').textContent = 'Failed: ' + e.message;
   }
@@ -658,8 +283,9 @@ async function loadLogs() {
       const entry = document.createElement('div');
       entry.className = 'log-entry';
 
-      const byClass = log.edited_by === 'assistant' ? 'by-assistant' : 'by-manual';
-      const byLabel = log.edited_by === 'assistant' ? '🔵 Assistant' : '👤 Manual';
+      const editedByAssistant = log.edited_by && log.edited_by !== 'manual';
+      const byClass = editedByAssistant ? 'by-assistant' : 'by-manual';
+      const byLabel = editedByAssistant ? '助手' : '👤 Manual';
 
       entry.innerHTML = `
         <div class="log-meta">
@@ -694,6 +320,18 @@ function esc(s) {
 
 // 初始加载
 loadSections();
+if (document.body.classList.contains('dashboard-embedded') && window.parent !== window) {
+  let heightFrame;
+  const publishHeight = () => {
+    cancelAnimationFrame(heightFrame);
+    heightFrame = requestAnimationFrame(() => window.parent.postMessage({
+      type: 'memory-gateway-prompt-height', height: document.body.getBoundingClientRect().height
+    }, window.location.origin));
+  };
+  new ResizeObserver(publishHeight).observe(document.body);
+  window.addEventListener('load', publishHeight);
+  publishHeight();
+}
 </script>
 </body>
 </html>

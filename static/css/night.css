@@ -1,0 +1,159 @@
+/* Paper appearance is confined to paper apps; standalone tools keep their existing theme. */
+
+:root[data-theme="dark"]:not(.phone-root),
+:root[data-theme="dark"] .phone-paper-app {
+    color-scheme: dark;
+    --night-desk: #1e211d;
+    --night-paper: #2c3029;
+    --night-raised: #363b31;
+    --night-field: #242821;
+    --night-line: #505747;
+    --night-ink: #e0dccb;
+    --night-soft: #b7b4a2;
+    --night-muted: #a3a58f;
+    --night-accent: #bacaa1;
+}
+:root[data-theme="dark"]:not(.phone-root),
+:root[data-theme="dark"] .phone-paper-app,
+:root[data-theme="dark"] :is(body, #section-standing):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *),
+:root[data-theme="dark"] #section-presets:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    --paper: var(--night-desk); --paper-base: var(--night-paper); --paper-warm: var(--night-desk);
+    --paper-aged: var(--night-raised); --paper-crease: var(--night-line); --paper-line: var(--night-line);
+    --ink: var(--night-ink); --ink-deep: var(--night-ink); --ink-mid: var(--night-ink);
+    --ink-soft: var(--night-soft); --ink-faint: var(--night-muted); --ink-light: var(--night-muted);
+    --border: var(--night-line); --border-light: var(--night-line);
+    --rust: var(--night-accent); --rust-mid: #d0deba; --rust-pale: #414c36; --signal-red: #d9a78e;
+    --leather: var(--night-paper); --leather-text: var(--night-ink); --leather-muted: var(--night-muted);
+    --leather-mid: var(--night-raised); --leather-light: var(--night-line);
+    --bg: var(--night-desk); --surface: var(--night-paper); --text: var(--night-ink);
+    --text-dim: var(--night-soft); --accent: var(--night-accent); --accent-glow: #414c36;
+    --editable: #c2d5ac; --editable-bg: #3e4b34; --locked: #d6b28f; --locked-bg: #4a4031;
+    --mustard: var(--night-accent); --mustard-bg: #414c36; --nine: #b0c5b9; --nine-bg: #35473e;
+    --shadow-paper: 0 3px 12px #0003; --shadow-lift: 0 6px 20px #0004;
+}
+:root[data-theme="dark"] body:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: var(--night-desk); color: var(--night-ink);
+}
+:root[data-theme="dark"] .dashboard .main-content:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *),
+:root[data-theme="dark"] .dashboard .main-content:has(:is(#section-standing, #section-conversations, #section-presets, #section-heartbeats).active):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    --page-surface: var(--night-desk); background: var(--night-desk);
+    border-color: var(--night-line); box-shadow: 3px 0 9px #0002;
+}
+:root[data-theme="dark"] :is(.conversation-list-frame, .conversation-detail-dialog):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: var(--night-desk); border-color: var(--night-line);
+}
+:root[data-theme="dark"] .conversation-hub-section .conversation-frame-status:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-paper); color: var(--night-soft); }
+
+/* Shared ink and controls, including the sheets opened above the dashboard. */
+    color: var(--night-ink);
+}
+:root[data-theme="dark"] :is(#section-standing, #section-presets, #section-heartbeats, #section-quotes) :is(h1, h2, h3, h4, .section-count, .credential-help, .settings-fold-caption):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    color: var(--night-soft);
+}
+:root[data-theme="dark"] :is(#section-standing, #section-presets, #section-heartbeats, #section-quotes) :is(.btn, .standing-add-memory, .usage-refresh, .flow-window-control button, .coffee-save, .newspaper-toolbar button):not(:where(.fragment-page *)):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: #3c4733; color: #d3dfc2; border-color: #5e6c4d;
+}
+:root[data-theme="dark"] :is(#section-standing, #section-presets, #section-quotes) :is(.control-input, .textarea, .search-input, .flow-window-control input, .preview-box):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: var(--night-field); color: var(--night-ink); border-color: var(--night-line);
+}
+:root[data-theme="dark"] :is(#section-standing, #section-presets, #section-heartbeats, #section-quotes) :is(.btn-danger, .msg-error):not(:where(.fragment-page *)):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: #49382f; color: #e5bca3; border-color: #89654e;
+}
+:root[data-theme="dark"] :is(.memory-editor-dialog, .modal, .conv-menu, .summary-text):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: var(--night-paper); color: var(--night-ink); border-color: var(--night-line); box-shadow: 0 12px 42px #0005;
+}
+:root[data-theme="dark"] :is(button, a, input, textarea, select, summary):focus-visible:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { outline-color: var(--night-accent); }
+
+/* Warm envelopes and a long sheet on the memory desk. */
+:root[data-theme="dark"] #section-standing .fixed-stack-cover:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: linear-gradient(90deg,#30382f 0 5px,#5f6957 6px 8px,#4e5947 12px,#5b6652 65%,#4c5844 100%); border-color: #727c65; border-left-color: #30392d;
+    box-shadow: inset 5px 0 9px #0002, 2px 3px 0 #aba99e, 3px 5px 0 #73756b, 4px 7px 0 #aaa99e, 5px 10px 0 #44483f, 8px 15px 18px #0003;
+}
+:root[data-theme="dark"] #section-standing .fixed-stack-flap:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: linear-gradient(#71674a, #61583f); }
+:root[data-theme="dark"] #section-standing .fixed-stack-cover:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::after {
+    background: none;
+}
+:root[data-theme="dark"] #section-standing .section-title-lockup p:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); }
+:root[data-theme="dark"] #section-standing :is(.fixed-stack-label, .fixed-stack-count):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: #e2d4ae; }
+:root[data-theme="dark"] #section-standing :is(.memory-stack-tape):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: transparent; color: #e7e5d4; border-color: #bbc4a56e; }
+:root[data-theme="dark"] #section-standing .memory-stack-tape:hover:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #ffffff12; }
+:root[data-theme="dark"] #section-standing :is(.fixed-stack-preview, .memory-letter-paper, .standing-empty, .pending-memory-card, .long-term-memory-card, .standing-pending):not(:where(.fragment-page *)):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: var(--night-paper); border-color: var(--night-line); color: var(--night-soft);
+}
+:root[data-theme="dark"] #section-standing .memory-zone-flow:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-paper); box-shadow: 3px 0 12px #0002; }
+:root[data-theme="dark"] #section-standing .memory-zone-flow:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='10'%3E%3Cpath d='M0 10 10 0 20 10Z' fill='%232c3029'/%3E%3C/svg%3E");
+}
+:root[data-theme="dark"] #section-standing .memory-zone-flow :is(.kelivo-memory-card, .memory-zone-head):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { border-color: var(--night-line); }
+:root[data-theme="dark"] #section-standing :is(.kelivo-memory-content, .kelivo-icon-btn, .memory-letter-number, .memory-pen, .long-term-memory-title):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); }
+:root[data-theme="dark"] #section-standing .memory-zone-flow :is(.kelivo-memory-timeline-meta strong, .kelivo-memory-timeline-meta time, .kelivo-memory-content, .flow-window-control span):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); }
+:root[data-theme="dark"] #section-standing .fixed-memory-unpacked .kelivo-memory-card:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::before { background: #544d39; }
+:root[data-theme="dark"] #section-standing .fixed-memory-unpacked .kelivo-memory-card:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::after { background: #62573c; border-color: #85754f; }
+:root[data-theme="dark"] #section-standing .memory-zone-flow .memory-letter-paper:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: transparent; }
+
+/* The cup remains a physical object, with softer highlights and a dark note. */
+:root[data-theme="dark"] #section-heartbeats .coffee-body-art:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { filter: brightness(.82) saturate(.78); }
+:root[data-theme="dark"] #section-heartbeats :is(.coffee-heading p, .coffee-switch-hint, #heartbeat-settings-note, #heartbeat-settings-msg, .coffee-bean-save):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); }
+:root[data-theme="dark"] #section-heartbeats .coffee-interval:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #514b3b; border-color: #817455; color: #e9dfc2; }
+:root[data-theme="dark"] #section-heartbeats .coffee-interval input:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: #f0e5c6; }
+:root[data-theme="dark"] #section-heartbeats .coffee-interval:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::after { background: linear-gradient(135deg, #70644a 45%, #3b3529 50%, #5f543d 70%); }
+:root[data-theme="dark"] #section-heartbeats .heartbeat-newspaper:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) {
+    background: #34372d; border-color: #5a604d;
+    box-shadow: 0 3px 6px #0003, 0 5px 0 -1px #3b3e32, 0 6px 0 #535844, 0 10px 0 -2px #31372b, 0 11px 0 -1px #515641;
+}
+:root[data-theme="dark"] #section-heartbeats .heartbeat-newspaper > summary:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: linear-gradient(178deg, #ffffff05, transparent 45%, #0002 49%, #ffffff08 50%, transparent 53%); }
+:root[data-theme="dark"] #section-heartbeats :is(.newspaper-edition, .newspaper-masthead, .newspaper-deck, .newspaper-open-hint, .newspaper-close-hint, .newspaper-toolbar, .heartbeat-final-text, .heartbeat-meta, .heartbeat-activity-head strong, .heartbeat-activity-head > div > span):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); border-color: var(--night-line); }
+:root[data-theme="dark"] #section-heartbeats :is(.heartbeat-activity-card, .heartbeat-tools):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { border-color: var(--night-line); }
+:root[data-theme="dark"] #section-heartbeats :is(.heartbeat-tool-event, .heartbeat-tool-grid pre):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-field); color: var(--night-soft); border-color: var(--night-line); }
+
+
+/* Usage clipboard and chart ink. */
+:root[data-theme="dark"] .usage-board:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: linear-gradient(130deg, #40514b, #33453e 60%, #293b34); border-color: #697967; box-shadow: inset 0 0 0 4px #ffffff08, 0 14px 44px #0005; }
+:root[data-theme="dark"] .usage-board:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::before { background: linear-gradient(90deg, #737767, #acaf9c 24%, #838a77 50%, #b5b9a3 75%, #676e5b); border-color: #737c67; }
+:root[data-theme="dark"] .usage-board:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::after { background: repeating-linear-gradient(90deg, #6f7860 0 2px, #a4ae92 2px 7px); border-color: #747e65; }
+:root[data-theme="dark"] #section-quotes.usage-board-content:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *),
+:root[data-theme="dark"] #section-quotes.usage-board-content .section-header:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-paper); color: var(--night-ink); border-color: var(--night-line); }
+:root[data-theme="dark"] #section-quotes.usage-board-content :is(.usage-hand-heading, .usage-board-close, .section-count, .usage-period-label, .usage-weekday, .usage-month, .usage-legend, .usage-rank-count, .usage-rank-label, .usage-rank-info, .standing-list-title span, .usage-stat-card span):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); }
+:root[data-theme="dark"] #section-quotes.usage-board-content :is(.usage-stat-card, .usage-overview-card, .data-table th):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-raised); color: var(--night-soft); border-color: var(--night-line); }
+:root[data-theme="dark"] #section-quotes.usage-board-content :is(.usage-stat-card strong, .usage-overview-card strong):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-accent); }
+:root[data-theme="dark"] #section-quotes.usage-board-content :is(.card, .data-table td):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { border-color: var(--night-line); color: var(--night-soft); }
+:root[data-theme="dark"] #section-quotes.usage-board-content .data-table tr:hover td:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #353d2e; }
+:root[data-theme="dark"] #section-quotes .usage-rank-fill:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #43563b; }
+:root[data-theme="dark"] #section-quotes :is(.usage-rank-initial, .usage-ranking-head):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-accent); }
+:root[data-theme="dark"] #section-quotes.usage-board-content .level-0:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #373d31; }
+:root[data-theme="dark"] #section-quotes.usage-board-content .level-1:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #4b5e40; }
+:root[data-theme="dark"] #section-quotes.usage-board-content .level-2:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #687e55; }
+:root[data-theme="dark"] #section-quotes.usage-board-content .level-3:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #8a9f70; }
+:root[data-theme="dark"] #section-quotes.usage-board-content .level-4:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #b7cda0; }
+
+/* The same desk palette in conversation list and detail iframes. */
+:root[data-theme="dark"] body.context-list-only:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-desk); }
+:root[data-theme="dark"] body.context-list-only .sidebar-header:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: linear-gradient(#484d43, #353c31 36%, #42493c 44%, #2d342a); border-color: #5b6551; box-shadow: inset 0 2px 2px #fff1, 0 9px 18px #0003; }
+:root[data-theme="dark"] :is(.printer-current, .new-btn, .usage-note, body.context-list-only .conv-list):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-paper); color: var(--night-ink); border-color: var(--night-line); }
+:root[data-theme="dark"] .usage-note:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background-image: repeating-linear-gradient(transparent 0 29px, #75806c33 29px 30px); }
+:root[data-theme="dark"] .usage-note:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::after { background-image: radial-gradient(circle at 0 15px, #1e211d 0 4px, transparent 4.5px); }
+:root[data-theme="dark"] :is(.printer-title, #printerHint, .usage-note-title, .usage-note-hint, .usage-note-record small, .usage-note-corner):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); }
+:root[data-theme="dark"] body.context-list-only .conv-list:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::after { background: linear-gradient(135deg, #2c3029 5px, transparent 0) 0 0/12px 8px, linear-gradient(225deg, #2c3029 5px, transparent 0) 0 0/12px 8px; }
+:root[data-theme="dark"] body.context-list-only :is(.conv-item, .conv-item.active, .conv-item.is-active, .conv-month, .conv-gear):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); border-color: var(--night-line); }
+:root[data-theme="dark"] body.context-list-only .conv-item .conv-meta:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-raised); color: var(--night-soft); border-color: var(--night-line); }
+:root[data-theme="dark"] body.context-detail-only .app:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-desk); }
+:root[data-theme="dark"] body.context-detail-only :is(.topbar, .chat-toolbar, .composer):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #282e25; border-color: var(--night-line); }
+:root[data-theme="dark"] body.context-detail-only :is(.conv-title, .conversation-status-dates, .composer-hint, .msg-header):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *),
+:root[data-theme="dark"] body.context-detail-only .conv-heading:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::before { color: var(--night-soft); }
+:root[data-theme="dark"] body.context-detail-only :is(.msg.user, .msg.assistant):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-paper); color: var(--night-ink); border-color: var(--night-line); }
+:root[data-theme="dark"] body.context-detail-only .msg.user:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #3b3e2e; }
+:root[data-theme="dark"] body.context-detail-only :is(.msg.user, .msg.assistant):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::before { background: #46513a; color: #d1dcbd; }
+:root[data-theme="dark"] body.context-detail-only :is(.msg.user, .msg.assistant) .msg-header:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); border-color: var(--night-line); }
+:root[data-theme="dark"] body.context-detail-only :is(.role-pill.active.mustard, .role-pill.active.nine):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #45543a; color: #d8e4c8; }
+:root[data-theme="dark"] body.context-detail-only :is(.quiet-action, .role-switch, .menu-btn, .msg-act-btn, .btn, .btn-primary, .btn-mustard, .btn-secondary, .handoff-summary, .handoff-summary summary, .composer-role-label):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-raised); color: var(--night-soft); border-color: var(--night-line); }
+:root[data-theme="dark"] body.context-detail-only :is(textarea.input-area, .chat-toolbar input, .chat-toolbar select):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-field); color: var(--night-ink); border-color: var(--night-line); }
+:root[data-theme="dark"] :is(.modal input, .modal textarea, .modal select, .conv-menu-item:hover):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-field); color: var(--night-ink); border-color: var(--night-line); }
+
+/* Standalone and embedded prompt editors share the same ink. */
+:root[data-theme="dark"] body.dashboard-embedded:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: transparent; }
+:root[data-theme="dark"] body :is(.section-key, .section-content, .preview-box, .log-entry, .log-meta, .header h1, .header .stats):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { color: var(--night-soft); }
+:root[data-theme="dark"] body :is(.edit-area textarea, .edit-reason, .log-diff-box):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: var(--night-field); color: var(--night-ink); border-color: var(--night-line); }
+:root[data-theme="dark"] body .section-card:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { border-color: var(--night-line); }
+:root[data-theme="dark"] body :is(input, textarea):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *)::placeholder { color: var(--night-muted); }
+:root[data-theme="dark"] body :is(.tab-btn.active, .btn-primary, .toast):where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #414f35; color: #d8e4c8; border-color: #65764f; }
+:root[data-theme="dark"] body .toast.error:where(body:not(.phone-dashboard), body:not(.phone-dashboard) *, .phone-paper-app, .phone-paper-app *) { background: #4c3930; color: #e6c2a9; }

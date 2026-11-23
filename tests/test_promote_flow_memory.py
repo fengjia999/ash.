@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -233,7 +234,11 @@ class PromoteFlowMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("会话摘要", insert_args[1])
         self.assertEqual("", insert_args[3])
         self.assertIsNone(insert_args[5])
-        self.assertFalse(insert_args[9])
+        self.assertTrue(insert_args[7])
+        self.assertEqual(
+            {"source_flow_memory_id": 42},
+            json.loads(insert_args[8]),
+        )
         self.assertIn("metadata->>'source_flow_memory_id' = $1", lookup_query)
         self.assertEqual("42", conn.fetchrow.await_args_list[1].args[1])
         self.assertEqual(100, result["id"])

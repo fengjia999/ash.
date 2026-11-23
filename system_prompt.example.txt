@@ -1,4 +1,4 @@
-<!-- 这是公开示例。请在 Dashboard 中编辑，或复制为 system_prompt.txt 后填写。 -->
+<!-- 这是公开示例。请复制为 system_prompt.txt 后填写，或启动后在 Dashboard 中编辑。 -->
 
 <!-- section:Identity editable priority:100 -->
 
