@@ -3,6 +3,7 @@
 ## 当前文档
 
 - [项目架构](ARCHITECTURE.md)
+- [使用说明](USAGE.md)
 - [记忆片段与召回](MEMORY_RETRIEVAL.md)
 - [手机桌面 Dashboard](DASHBOARD_PHONE.md)
 

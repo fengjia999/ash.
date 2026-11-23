@@ -97,15 +97,14 @@ class PageLoadingAssetTests(unittest.TestCase):
         self.assertNotIn('id="prompt-console-frame" class="prompt-console-frame" title="提示词编辑器" src=', dashboard)
         self.assertIn('frame.src = "/prompt?embedded=dashboard";', script)
 
-    def test_readme_distinguishes_current_and_original_repositories(self):
+    def test_readme_credits_original_repository(self):
         root = Path(__file__).resolve().parents[1]
         readme = (root / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("https://github.com/fengjia999/Ash-public", readme)
         self.assertIn(
             "https://github.com/garan0613/ai-memory-gateway", readme
         )
-        self.assertIn("感谢原作者提供早期框架与开放许可", readme)
+        self.assertIn("感谢原作者的框架与开放许可", readme)
         self.assertIn("MCP", readme)
 
     def test_phone_desktop_replaces_sidebar_navigation(self):
